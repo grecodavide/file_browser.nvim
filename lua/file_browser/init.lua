@@ -1,25 +1,39 @@
 local M = {}
 local mini_icons = require("mini.icons")
 
+---@class file_browser.Icon
+---@field text string: The icon text
+---@field hl string: The Highlight group
+
+---@class file_browser.Icons
+---@field texts table|string: The icons text. If string, it means they are all the same
+---@field hls string[]|string: The Highlight groups. If string, it means they are all the same
+
 ---@class file_browser.Entry
 ---@field text string: text
----@field icon string: icon
+---@field icon file_browser.Icon: icon
+
+---@class file_browser.Entries
+---@field texts string[]: text
+---@field icons file_browser.Icons: icon
 
 ---@class file_browser.Layout
 ---@field prompt integer
 ---@field results integer
+---@field results_icon integer
 ---@field preview integer
 
 ---@class file_browser.State
 ---@field windows file_browser.Layout: the Windows ID (initialized at invalid values)
 ---@field buffers file_browser.Layout: the Buffers ID (initialized at invalid values)
----@field entries table<string, file_browser.Entry[]>: the Buffers ID (initialized at invalid values)
+---@field entries table<string, file_browser.Entries>: the Buffers ID (initialized at invalid values)
 local state = {
     windows = {
         prompt = -1,
         results_icon = -1,
         results = -1,
         preview = -1,
+        padding = -1,
     },
 
     buffers = {
@@ -27,67 +41,33 @@ local state = {
         results_icon = -1,
         results = -1,
         preview = -1,
+        padding = -1,
     },
 
     entries = {
-        files = {},
-        directories = {},
-        links = {},
+        files = {
+            texts = {},
+            icons = {
+                texts = {},
+                hls = {},
+            },
+        },
+        directories = {
+            texts = {},
+            icons = {
+                texts = "MiniIconsBlue",
+                hls = "",
+            },
+        },
+        links = {
+            texts = {},
+            icons = {
+                texts = "MiniIconsBlue",
+                hls = "󱅷",
+            },
+        },
     },
 }
-
----@class file_browser.Config
----@field start_insert boolean: Wether we should start in insert mode
----@field cwd string?: Directory under which we should search
----@field display_symlinks boolean: Wehter we should show symlinks or not
-M.opts = {
-    start_insert = true,
-    display_symlinks = true,
-}
-
-M.options = {
-    fillchars = {
-        floating = { eob = " " },
-        original = {},
-    },
-}
-
-local function get_cmd(path, type)
-    return vim.split(io.popen(string.format("cd %s && fd --exact-depth=1 -t %s", path, type), "r"):read("*a"), "\n")
-end
-
----Transforms text to entry
----@param entry string
----@return file_browser.Entry
-local function transform(entry)
-    return {
-        icon = mini_icons.get("file", entry),
-        text = entry,
-    }
-end
-
-local function get_entries(cwd)
-    -- state.entries.files = vim.iter(get_cmd(cwd, "f")):map(transform)
-    state.entries.directories = vim.iter(get_cmd(cwd, "d"))
-        :filter(function(entry)
-            return entry ~= nil and entry ~= ""
-        end)
-        :map(transform)
-        :totable()
-end
-
-local save_options = function()
-    M.options.fillchars.original = vim.opt.fillchars
-    -- M.options.fillchars.original = vim.opt.fillchars
-end
-
----Sets options to either original or new value
----@param conf string
-local set_options = function(conf)
-    for option, value in pairs(M.options) do
-        vim.opt[option] = value[conf] or value.original
-    end
-end
 
 ---Gets the windows configuration, used to create such windows
 ---@return table: The config for prompt, results and preview window
@@ -101,42 +81,53 @@ local get_win_configs = function()
     local results_height = vim.o.lines - prompt_row - prompt_height - 4
     local icon_size = 2
 
+    local results_row = prompt_height + 2
+
     ---@type table<string, vim.api.keyset.win_config>
     return {
         prompt = {
             relative = "editor",
             width = half_width - 2,
             height = prompt_height,
-            row = prompt_row,
+            row = 0,
             col = 0,
             zindex = 4,
-            border = { "┌", "─", "┐", "│", "┤", "─", "└", "│" },
+            border = { "┌", "─", "┐", "│", "┤", "─", "├", "│" },
+            noautocmd = true,
+        },
+        padding = {
+            relative = "editor",
+            width = 1,
+            height = results_height,
+            row = results_height, -- border + spacing
+            col = 0,
+            zindex = 6,
+            border = { "│", " ", " ", " ", "─", "─", "└", "│" },
         },
         results_icon = {
             relative = "editor",
             width = icon_size,
             height = results_height,
-            row = prompt_row + prompt_height + 2, -- border + spacing
-            col = 0,
-            zindex = 5,
-            -- border = "single",
-            border = { "├", "─", "─", "", "─", "─", "└", "│" },
+            row = results_row,
+            col = icon_size,
+            zindex = 6,
+            border = { " ", " ", " ", " ", "─", "─", " ", " " },
         },
         results = {
             relative = "editor",
-            width = half_width - 2 - icon_size,
+            width = half_width - 5 - icon_size,
             height = results_height,
-            row = prompt_row + prompt_height + 2, -- border + spacing
-            col = 3,
+            row = results_row,
+            col = icon_size + 3,
             zindex = 1,
-            border = { "", "", "", "│", "┘", "─", "", "" },
+            border = { " ", " ", "│", "│", "┘", "─", " ", " " },
         },
         preview = {
             relative = "editor",
             width = half_width,
             height = vim.o.lines - prompt_row - prompt_height - 4,
             border = "single",
-            row = prompt_row + prompt_height + 2, -- border + spacing
+            row = prompt_row + prompt_height + 3, -- border + spacing
             col = half_width,
             zindex = 1,
         },
@@ -152,6 +143,7 @@ local get_opts = function()
                 cursorline = false,
                 number = false,
                 relativenumber = false,
+                signcolumn = "no",
             },
         },
         results = {
@@ -160,6 +152,7 @@ local get_opts = function()
                 cursorline = false,
                 number = false,
                 relativenumber = false,
+                signcolumn = "no",
             },
         },
         results_icon = {
@@ -168,6 +161,7 @@ local get_opts = function()
                 cursorline = false,
                 number = false,
                 relativenumber = false,
+                signcolumn = "no",
             },
         },
         preview = {
@@ -176,7 +170,100 @@ local get_opts = function()
                 cursorline = false,
             },
         },
+
+        padding = {
+            buf = {},
+            win = {
+                cursorline = false,
+            },
+        },
     }
+end
+
+---@class file_browser.Config
+---@field start_insert boolean: Whether we should start in insert mode
+---@field cwd string?: Directory under which we should search
+---@field display_symlinks boolean: Wehter we should show symlinks or not
+M.opts = {
+    start_insert = true,
+    display_symlinks = true,
+}
+
+M.options = {
+    fillchars = {
+        floating = { eob = " " },
+        original = {},
+    },
+}
+
+--- Create cmd to get all entries matching a certain type in the given directory, and get its output
+---@param path string: The path to search into
+---@param type "f"|"d"|"l": The type to match.
+---@return string[]: The output for this command
+local function get_cmd(path, type)
+    return vim.split(io.popen(string.format("cd %s && fd --exact-depth=1 -t %s", path, type), "r"):read("*a"), "\n")
+end
+
+---Transforms text to icon and text couple
+---@param entry string: the text gotten from a cmd
+---@return file_browser.Entry
+local function transform(entry)
+    local icon_text, hl = mini_icons.get("file", entry)
+
+    return {
+        icon = { text = icon_text, hl = hl },
+        text = entry,
+    }
+end
+
+local function get_entries(cwd)
+    -- state.entries.files = vim.iter(get_cmd(cwd, "f")):map(transform)
+    state.entries.directories.icons = { texts = {}, hls = {} }
+    state.entries.directories.texts = {}
+
+    local directories = get_cmd(cwd, "d")
+    for _, dir in pairs(directories) do
+        if dir and dir ~= "" then
+            table.insert(state.entries.directories.texts, dir)
+        end
+    end
+
+    state.entries.links.texts = {}
+    local links = get_cmd(cwd, "l")
+    for _, link in pairs(links) do
+        if link and link ~= "" then
+            table.insert(state.entries.links.texts, link)
+        end
+    end
+
+    state.entries.files.texts = {}
+    local files = get_cmd(cwd, "f")
+    local icons = {}
+    local hls = {}
+    for _, file in pairs(files) do
+        if file and file ~= "" then
+            local entry = transform(file)
+            table.insert(state.entries.files.texts, entry.text)
+
+            table.insert(icons, entry.icon.text)
+            table.insert(hls, entry.icon.hl)
+        end
+    end
+    state.entries.files.icons.texts = icons
+    state.entries.files.icons.hls = hls
+end
+
+local save_options = function()
+    M.options.fillchars.original = vim.opt.fillchars
+    -- M.options.fillchars.original = vim.opt.fillchars
+end
+
+---Sets options to either original or new value
+---@param conf string
+local set_options = function(conf)
+    for option, value in pairs(M.options) do
+        vim.opt[option] = value[conf] or value.original
+    end
 end
 
 local windo = function(func)
@@ -203,6 +290,8 @@ local create_windows = function()
         end
     end)
 
+    vim.bo[state.buffers.prompt].filetype = "prompt"
+
     vim.api.nvim_create_autocmd("WinLeave", {
         buffer = state.buffers.prompt,
         callback = function()
@@ -224,18 +313,23 @@ M.open = function(cwd)
 
     get_entries(cwd)
 
-    -- TODO: better way for icons and content, not iter every time
-    vim.api.nvim_buf_set_lines(
-        state.buffers.results,
-        0,
-        -1,
-        false,
-        vim.iter(state.entries.directories)
-            :map(function(entry)
-                return entry.text
-            end)
-            :totable()
-    )
+    for t, entry_type in pairs({ f = "files", d = "directories", l = "links" }) do
+        local entry = state.entries[entry_type]
+
+        if type(entry.icons.texts) == "string" then
+            -- code
+        else
+            vim.api.nvim_buf_set_lines(state.buffers.results, 0, -1, false, entry.texts)
+            ---@diagnostic disable-next-line: param-type-mismatch
+            vim.api.nvim_buf_set_lines(state.buffers.results_icon, 0, -1, false, entry.icons.texts)
+
+            ---@diagnostic disable-next-line: param-type-mismatch
+            for linenr, hl in pairs(entry.icons.hls) do
+                vim.api.nvim_buf_add_highlight(state.buffers.results, 0, hl, linenr, 0, -1)
+                vim.api.nvim_buf_add_highlight(state.buffers.results_icon, 0, hl, linenr, 0, -1)
+            end
+        end
+    end
 end
 
 -- to remove eob
@@ -251,6 +345,6 @@ M.setup = function(opts)
 end
 
 M.setup()
-M.open()
+M.open("~/shiny-potato/c")
 
 return M
