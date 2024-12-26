@@ -44,3 +44,4 @@
 ---@field buf_opts table<file_browser.LayoutElement, vim.bo>
 ---@field win_opts table<file_browser.LayoutElement, vim.wo>
 ---@field options_to_restore table: options that should be restored globally once the windows get closed
+---@field cwd string

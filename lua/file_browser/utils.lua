@@ -107,11 +107,47 @@ M.get_opts = function()
     }
 end
 
----comment
+---Do for any window something
+---@param state file_browser.State
+---@param func fun(string, number):any
+M.windo = function(state, func)
+    for kind, value in pairs(state.windows) do
+        func(kind, value)
+    end
+end
+
+M.normal_mode = function()
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "i", false)
+end
+
+---@param state file_browser.State
+M.goto_parent = function(state)
+    local _, seps = state.cwd:gsub("/", "")
+    if seps > 0 then
+        local cwd = select(1, state.cwd:gsub("(.*)/.+$", "%1/"))
+        require("file_browser").populate(cwd)
+    end
+end
+
+---Default action
 ---@param state file_browser.State
 M.default_action = function(state)
-    if state.entries[state.entries_nr].is_dir then
-        -- M.
+    local new_cwd = state.cwd .. state.entries[state.current_entry].text
+    if state.entries[state.current_entry].is_dir then
+        require("file_browser").populate(new_cwd)
+    else
+        -- vim.api.nvim_win_close(state.windows.prompt, true)
+        -- vim.api.nvim_win_close(state.windows.prompt_prefix, true)
+        -- vim.api.nvim_win_close(state.windows.results, true)
+        -- vim.api.nvim_win_close(state.windows.results_icon, true)
+        -- vim.api.nvim_win_close(state.windows.padding, true)
+        -- vim.api.nvim_win_close(state.windows.preview, true)
+        M.windo(state, function(_, value)
+            vim.api.nvim_win_close(value, true)
+        end)
+
+        M.normal_mode()
+        vim.cmd.edit(new_cwd)
     end
 end
 
@@ -262,9 +298,13 @@ M.get_entries = function(state, cwd)
     state.entries_nr = #state.entries
 end
 
+---Saves the original values of the options that will need to be modified by the plugin
+---@param options table
 M.save_options = function(options)
     for opt, _ in pairs(options) do
-        options[opt].original = vim.opt[opt]
+        if options[opt] == nil then
+            options[opt].original = vim.opt[opt]
+        end
     end
 end
 
@@ -274,6 +314,46 @@ M.set_options = function(options, conf)
     for option, value in pairs(options) do
         vim.opt[option] = value[conf] or value.original
     end
+end
+
+---Creates a default state value
+---@return file_browser.State
+M.default_state = function()
+    return {
+        cwd = "",
+        options_to_restore = {
+            fillchars = {
+                floating = { eob = " " },
+                original = {},
+            },
+        },
+        buf_opts = {},
+        win_opts = {},
+        win_configs = {},
+        results_width = 0,
+        windows = {
+            prompt_prefix = -1,
+            prompt = -1,
+            results_icon = -1,
+            results = -1,
+            preview = -1,
+            padding = -1,
+        },
+
+        buffers = {
+            prompt_prefix = -1,
+            prompt = -1,
+            results_icon = -1,
+            results = -1,
+            preview = -1,
+            padding = -1,
+        },
+
+        entries = {},
+
+        current_entry = -1,
+        entries_nr = 0,
+    }
 end
 
 return M
