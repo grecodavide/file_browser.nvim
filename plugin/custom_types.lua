@@ -33,15 +33,15 @@
 
 ---@alias file_browser.LayoutElement "prompt_prefix"|"prompt"|"results"|"results_icon"|"preview"|"padding"
 
----@class file_browser.State
----@field windows file_browser.Layout: the Windows ID (initialized at invalid values)
----@field results_width number: the size of results width
----@field win_configs table<file_browser.LayoutElement, vim.api.keyset.win_config?>: The configs for all windows
----@field buffers file_browser.Layout: the Buffers ID (initialized at invalid values)
----@field entries file_browser.Entry[]: the Buffers ID (initialized at invalid values)
----@field current_entry number: The current entry. -1 (invalid) by default
----@field entries_nr number: The number of entries
----@field buf_opts table<file_browser.LayoutElement, vim.bo>
----@field win_opts table<file_browser.LayoutElement, vim.wo>
----@field options_to_restore table: options that should be restored globally once the windows get closed
----@field cwd string
+-- ---@class file_browser.State
+-- ---@field windows file_browser.Layout: the Windows ID (initialized at invalid values)
+-- ---@field results_width number: the size of results width
+-- ---@field win_configs table<file_browser.LayoutElement, vim.api.keyset.win_config?>: The configs for all windows
+-- ---@field buffers file_browser.Layout: the Buffers ID (initialized at invalid values)
+-- ---@field entries file_browser.Entry[]: the Buffers ID (initialized at invalid values)
+-- ---@field current_entry number: The current entry. -1 (invalid) by default
+-- ---@field entries_nr number: The number of entries
+-- ---@field buf_opts table<file_browser.LayoutElement, vim.bo>
+-- ---@field win_opts table<file_browser.LayoutElement, vim.wo>
+-- ---@field options_to_restore table: options that should be restored globally once the windows get closed
+-- ---@field cwd string
