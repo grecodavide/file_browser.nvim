@@ -53,6 +53,9 @@ M.get_opts = function()
 
         padding = {
             cursorline = true,
+            number = false,
+            relativenumber = false,
+            signcolumn = "no",
         },
     }
 end
@@ -107,12 +110,12 @@ M.get_win_configs = function(width_scale, height_scale, preview_scale)
         },
         padding = {
             relative = "editor",
-            width = 1,
+            width = 3,
             height = results_height,
             row = base_row + 3,
             col = base_col,
-            border = { "│", " ", " ", " ", "─", "─", "└", "│" },
-            zindex = 1,
+            border = { "│", " ", " ", "", "─", "─", "└", "│" },
+            zindex = 100,
             focusable = false,
         },
         results_icon = {
@@ -120,17 +123,17 @@ M.get_win_configs = function(width_scale, height_scale, preview_scale)
             width = 2,
             height = results_height,
             row = base_row + 3,
-            col = base_col + 2,
+            col = base_col + 3,
             border = { " ", " ", " ", "", " ", "─", "─", " " },
             zindex = 2,
             focusable = false,
         },
         results = {
             relative = "editor",
-            width = results_width - 5, -- padding (1), results_icon (2), two double borders (2 each)
+            width = results_width - 6, -- padding (1), results_icon (2), two double borders (2 each)
             height = results_height,
             row = base_row + 3,
-            col = base_col + 5,
+            col = base_col + 6,
             border = { " ", " ", "│", "│", "┘", "─", "─", "" },
             zindex = 3,
         },

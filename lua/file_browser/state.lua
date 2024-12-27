@@ -40,6 +40,8 @@ local function transform(entry)
     return {
         icon = { text = icon_text, hl = hl },
         text = entry,
+        is_dir = false,
+        marked = false,
     }
 end
 
@@ -81,17 +83,32 @@ end
 ---@field cwd string
 ---@field width_scale number
 ---@field height_scale number
+---@field marked_icons file_browser.MarkIcons
+---@field marked {selected: file_browser.Entry[], cut: file_browser.Entry[]}
 local State = {}
 
 ---Returns a default state
 ---@return file_browser.State
-function State:new(width_scale, height_scale)
+function State:new(width_scale, height_scale, marked_icons)
+    marked_icons = {
+        selected = {
+            text = string.format(" %s", marked_icons.selected.text),
+            hl = marked_icons.selected.hl,
+        },
+        cut = {
+            text = string.format(" %s", marked_icons.selected.text),
+            hl = marked_icons.selected.hl,
+        },
+    }
+
     return setmetatable({
         cwd = "",
         options_to_restore = {
             fillchars = {
                 floating = { eob = " " },
-                original = {},
+            },
+            listchars = {
+                floating = { tab = "  ", trail = " ", nbsp = " " },
             },
         },
         buf_opts = {},
@@ -125,6 +142,8 @@ function State:new(width_scale, height_scale)
 
         width_scale = width_scale,
         height_scale = height_scale,
+
+        marked_icons = marked_icons,
     }, self)
 end
 
@@ -138,6 +157,10 @@ function State:create_mappings()
     map("i", "<C-f>", function()
         utils.normal_mode()
         vim.api.nvim_set_current_win(self.windows.results)
+    end, self.buffers.prompt)
+    map("i", "<C-s>", function()
+        self.display_entries[self.display_current_entry].marked = not self.display_entries[self.display_current_entry].marked
+        self:show_entries()
     end, self.buffers.prompt)
     map({ "n" }, "e", function()
         vim.api.nvim_set_current_win(self.windows.results)
@@ -187,7 +210,7 @@ end
 function State:save_options()
     for opt, _ in pairs(self.options_to_restore) do
         if self.options_to_restore[opt].original == nil then
-            self.options_to_restore[opt].original = vim.opt[opt]
+            self.options_to_restore[opt].original = vim.opt[opt]:get()
         end
     end
 end
@@ -248,6 +271,7 @@ end
 ---@param height_scale number: Percentage of height
 function State:create_windows(width_scale, height_scale)
     self:save_options()
+
     self.win_configs, self.results_width = utils.get_win_configs(width_scale, height_scale)
     self.buf_opts, self.win_opts = utils.get_opts()
 
@@ -276,15 +300,6 @@ end
 function State:reset_display_entries()
     self.display_entries = vim.deepcopy(self.entries)
     self.display_entries_nr = self.entries_nr
-end
-
-local function contains(tbl, value)
-    for _, e in ipairs(tbl) do
-        if e == value then
-            return true
-        end
-    end
-    return false
 end
 
 function State:index(value)
@@ -335,11 +350,18 @@ function State:show_entries()
 
     vim.api.nvim_buf_set_lines(self.buffers.results, 0, -1, false, {})
     vim.api.nvim_buf_set_lines(self.buffers.results_icon, 0, -1, false, {})
+    vim.api.nvim_buf_set_lines(self.buffers.padding, 0, -1, false, {})
     for row = 1, self.display_entries_nr do
         entry = self.display_entries[row]
         -- row-1, row so that we effectively overwrite empty line
         vim.api.nvim_buf_set_lines(self.buffers.results, row - 1, row, false, { entry.text })
         vim.api.nvim_buf_set_lines(self.buffers.results_icon, row - 1, row, false, { entry.icon.text })
+        if entry.marked then
+            vim.api.nvim_buf_set_lines(self.buffers.padding, row - 1, row, false, { self.marked_icons.selected.text })
+            vim.api.nvim_buf_add_highlight(self.buffers.padding, 0, self.marked_icons.selected.hl, row - 1, 0, -1)
+        else
+            vim.api.nvim_buf_set_lines(self.buffers.padding, row - 1, row, false, { "  " })
+        end
         vim.api.nvim_buf_add_highlight(self.buffers.results_icon, 0, entry.icon.hl, row - 1, 0, -1)
         vim.api.nvim_buf_add_highlight(self.buffers.results, 0, entry.icon.hl, row - 1, 0, -1)
     end
@@ -393,6 +415,7 @@ function State:jump(index, absolute)
     self.display_current_entry = new_curr
 
     vim.api.nvim_win_set_cursor(self.windows.results, { self.display_current_entry, 0 })
+    vim.api.nvim_win_set_cursor(self.windows.padding, { self.display_current_entry, 0 })
     vim.api.nvim_win_set_cursor(self.windows.results_icon, { self.display_current_entry, 0 })
 end
 
@@ -425,6 +448,7 @@ function State:get_entries(show_hidden)
                 },
                 text = dir,
                 is_dir = true,
+                marked = false,
             })
         end
     end
@@ -439,6 +463,7 @@ function State:get_entries(show_hidden)
                 },
                 text = link,
                 is_dir = false,
+                marked = false,
             })
         end
     end

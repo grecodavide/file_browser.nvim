@@ -52,7 +52,7 @@ end
 M.setup = function(opts)
     M.opts = vim.tbl_deep_extend("force", M.opts, opts or {})
 
-    state = require("file_browser.state"):new(M.opts.width_scale, M.opts.height_scale)
+    state = require("file_browser.state"):new(M.opts.width_scale, M.opts.height_scale, M.opts.mark_icons)
 
     utils.save_options(state.options_to_restore)
 
