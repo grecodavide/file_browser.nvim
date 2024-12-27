@@ -49,6 +49,8 @@ M.get_opts = function()
         },
         preview = {
             cursorline = false,
+            number = false,
+            relativenumber = false,
         },
 
         padding = {

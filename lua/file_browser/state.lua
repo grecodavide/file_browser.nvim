@@ -13,12 +13,19 @@
 
 --- Create cmd to get all entries matching a certain type in the given directory, and get its output
 ---@param path string: The path to search into
----@param type "f"|"d"|"l": The type to match.
+---@param type "f"|"d"|"l"|"a": The type to match.
 ---@param show_hidden boolean: Whether to show hidden files
 ---@return string[]: The output for this command
 local function get_cmd(path, type, show_hidden)
     if show_hidden then
+        if type == "a" then
+            return vim.split(io.popen(string.format("cd %s && fd --hidden --exact-depth=1", path), "r"):read("*a"), "\n")
+        end
         return vim.split(io.popen(string.format("cd %s && fd --hidden --exact-depth=1 -t %s", path, type), "r"):read("*a"), "\n")
+    end
+
+    if type == "a" then
+        return vim.split(io.popen(string.format("cd %s && fd --exact-depth=1", path), "r"):read("*a"), "\n")
     end
     return vim.split(io.popen(string.format("cd %s && fd --exact-depth=1 -t %s", path, type), "r"):read("*a"), "\n")
 end
@@ -64,6 +71,45 @@ local is_insert = function()
     return vim.fn.mode() == "i"
 end
 
+local create_entries = function(cwd, show_hidden, tbl)
+    local directories = get_cmd(cwd, "d", show_hidden)
+    for _, dir in pairs(directories) do
+        if dir and dir ~= "" then
+            table.insert(tbl, {
+                icon = {
+                    text = dir_icon_text,
+                    hl = dir_hl,
+                },
+                text = dir,
+                is_dir = true,
+                marked = false,
+            })
+        end
+    end
+
+    local links = get_cmd(cwd, "l", show_hidden)
+    for _, link in pairs(links) do
+        if link and link ~= "" then
+            table.insert(tbl, {
+                icon = {
+                    text = link_icon_text,
+                    hl = link_icon_hl,
+                },
+                text = link,
+                is_dir = false,
+                marked = false,
+            })
+        end
+    end
+
+    local files = get_cmd(cwd, "f", show_hidden)
+    for _, file in pairs(files) do
+        if file and file ~= "" then
+            table.insert(tbl, transform(file))
+        end
+    end
+end
+
 -- TODO: state should also contain a "marked" value, containing all file
 -- marked for either selection or cut
 
@@ -75,21 +121,23 @@ end
 ---@field entries file_browser.Entry[]: the Buffers ID (initialized at invalid values)
 ---@field entries_nr number: The number of entries
 ---@field display_entries file_browser.Entry[]: the Buffers ID (initialized at invalid values)
----@field display_current_entry number: The current entry. -1 (invalid) by default
+---@field display_current_entry_nr number: The current entry. -1 (invalid) by default
 ---@field display_entries_nr number: The number of entries
 ---@field buf_opts table<file_browser.LayoutElement, vim.bo>
 ---@field win_opts table<file_browser.LayoutElement, vim.wo>
 ---@field options_to_restore table: options that should be restored globally once the windows get closed
 ---@field cwd string
+---@field show_hidden boolean
 ---@field width_scale number
 ---@field height_scale number
 ---@field marked_icons file_browser.MarkIcons
 ---@field marked {selected: file_browser.Entry[], cut: file_browser.Entry[]}
+---@field debounce number
 local State = {}
 
 ---Returns a default state
 ---@return file_browser.State
-function State:new(width_scale, height_scale, marked_icons)
+function State:new(debounce, show_hidden, width_scale, height_scale, marked_icons)
     marked_icons = {
         selected = {
             text = string.format(" %s", marked_icons.selected.text),
@@ -144,6 +192,10 @@ function State:new(width_scale, height_scale, marked_icons)
         height_scale = height_scale,
 
         marked_icons = marked_icons,
+
+        show_hidden = show_hidden,
+
+        debounce = debounce,
     }, self)
 end
 
@@ -159,7 +211,7 @@ function State:create_mappings()
         vim.api.nvim_set_current_win(self.windows.results)
     end, self.buffers.prompt)
     map("i", "<C-s>", function()
-        self.display_entries[self.display_current_entry].marked = not self.display_entries[self.display_current_entry].marked
+        self.display_entries[self.display_current_entry_nr].marked = not self.display_entries[self.display_current_entry_nr].marked
         self:show_entries()
     end, self.buffers.prompt)
     map({ "n" }, "e", function()
@@ -374,15 +426,14 @@ end
 --- Goes to a given directory, populating results and updating the state.
 ---@param cwd string: The path to cd to
 ---@param start_insert boolean?: Whether we should start in insert mode. Defaults to true
----@param show_hidden boolean?: Whether to show hidden files. defaults to true
-function State:cd(cwd, start_insert, show_hidden)
+function State:cd(cwd, start_insert)
     self:reset_entries()
     if start_insert == nil or start_insert then
         vim.cmd([[startinsert]])
     end
 
     self:update_prompt(cwd, dir_hl)
-    self:get_entries(show_hidden or true)
+    self:get_entries()
 
     self:show_entries()
 end
@@ -395,6 +446,30 @@ function State:focus()
     vim.api.nvim_set_current_win(self.windows.prompt)
 end
 
+-- init as nil: never called
+local update_preview = nil
+
+-- this function does handles the debounce: basically
+local function defer_with_cancel(func, delay)
+    local timer = vim.loop.new_timer()
+
+    -- Start the timer
+    timer:start(delay, 0, function()
+        vim.schedule(func) -- Schedule the function on Neovim's main thread
+        timer:stop()
+        timer:close()
+    end)
+
+    -- Return a cancel function: if we call the return value of this function,
+    -- we will stop the execution of the given function (as long as the time did not elapse)
+    return function()
+        if not timer:is_closing() then
+            timer:stop()
+            timer:close()
+        end
+    end
+end
+
 ---Jumps to a given entry in the list, by specifying an index
 ---@param index number: the index to jump to (relative or absolute)
 ---@param absolute boolean?: Whether the given index is absolute. Defaults to false
@@ -403,7 +478,7 @@ function State:jump(index, absolute)
     if absolute then
         new_curr = index
     else
-        new_curr = self.display_current_entry + index
+        new_curr = self.display_current_entry_nr + index
     end
 
     if new_curr <= 0 then
@@ -412,11 +487,53 @@ function State:jump(index, absolute)
         new_curr = 1
     end
 
-    self.display_current_entry = new_curr
+    self.display_current_entry_nr = new_curr
 
-    vim.api.nvim_win_set_cursor(self.windows.results, { self.display_current_entry, 0 })
-    vim.api.nvim_win_set_cursor(self.windows.padding, { self.display_current_entry, 0 })
-    vim.api.nvim_win_set_cursor(self.windows.results_icon, { self.display_current_entry, 0 })
+    vim.api.nvim_win_set_cursor(self.windows.results, { self.display_current_entry_nr, 0 })
+    vim.api.nvim_win_set_cursor(self.windows.padding, { self.display_current_entry_nr, 0 })
+    vim.api.nvim_win_set_cursor(self.windows.results_icon, { self.display_current_entry_nr, 0 })
+
+    -- if update_preview is not nil we already called the function in the last `self.debounce` ms!
+    -- so we need to cancel that call
+    if update_preview ~= nil then
+        update_preview()
+    end
+
+    -- Defer the update of preview window
+    update_preview = defer_with_cancel(function()
+        self:update_preview()
+        update_preview = nil
+    end, self.debounce)
+end
+
+function State:update_preview()
+    local curr = self.display_entries[self.display_current_entry_nr]
+    if curr == nil then
+        return
+    end
+    local fullpath = self.cwd .. curr.text
+    if curr.is_dir then
+        local tmp = {}
+        create_entries(fullpath, self.show_hidden, tmp)
+
+        vim.api.nvim_buf_set_lines(self.buffers.preview, 0, -1, false, {})
+        local entry
+        for row = 1, #tmp do
+            entry = tmp[row]
+            -- row-1, row so that we effectively overwrite empty line
+            vim.api.nvim_buf_set_lines(self.buffers.preview, row - 1, row, false, { string.format("%s  %s", entry.icon.text, entry.text) })
+            vim.api.nvim_buf_add_highlight(self.buffers.preview, 0, entry.icon.hl, row - 1, 0, -1)
+        end
+
+        vim.bo[self.buffers.preview].filetype = ""
+    else
+        vim.api.nvim_buf_set_lines(self.buffers.preview, 0, -1, false, {})
+        vim.api.nvim_set_current_win(self.windows.preview)
+        vim.cmd(string.format("silent read %s", fullpath))
+        vim.api.nvim_buf_set_lines(self.buffers.preview, 0, 1, false, {}) -- remove first line, as read on empty buf will always leave the first line empty
+        vim.bo[self.buffers.preview].filetype = vim.filetype.match({ filename = curr.text }) or ""
+        vim.api.nvim_set_current_win(self.windows.prompt)
+    end
 end
 
 ---Updates the prompt, prompt prefix and cwd
@@ -436,44 +553,8 @@ function State:update_prompt(cwd, prefix_hl)
 end
 
 ---Populates the state with the entries for the current directory
----@param show_hidden boolean
-function State:get_entries(show_hidden)
-    local directories = get_cmd(self.cwd, "d", show_hidden)
-    for _, dir in pairs(directories) do
-        if dir and dir ~= "" then
-            table.insert(self.entries, {
-                icon = {
-                    text = dir_icon_text,
-                    hl = dir_hl,
-                },
-                text = dir,
-                is_dir = true,
-                marked = false,
-            })
-        end
-    end
-
-    local links = get_cmd(self.cwd, "l", show_hidden)
-    for _, link in pairs(links) do
-        if link and link ~= "" then
-            table.insert(self.entries, {
-                icon = {
-                    text = link_icon_text,
-                    hl = link_icon_hl,
-                },
-                text = link,
-                is_dir = false,
-                marked = false,
-            })
-        end
-    end
-
-    local files = get_cmd(self.cwd, "f", show_hidden)
-    for _, file in pairs(files) do
-        if file and file ~= "" then
-            table.insert(self.entries, transform(file))
-        end
-    end
+function State:get_entries()
+    create_entries(self.cwd, self.show_hidden, self.entries)
 
     self.entries_nr = #self.entries
     self.current_entry = 1
@@ -503,8 +584,8 @@ end
 --- Default action. Opens if file, cd if directory
 ---@param cd boolean?: should also change directory
 function State:default_action(cd)
-    local new_cwd = self.cwd .. self.display_entries[self.display_current_entry].text
-    if self.display_entries[self.display_current_entry].is_dir then
+    local new_cwd = self.cwd .. self.display_entries[self.display_current_entry_nr].text
+    if self.display_entries[self.display_current_entry_nr].is_dir then
         if cd then
             vim.fn.chdir(new_cwd)
         end
@@ -534,8 +615,8 @@ end
 
 --- Opens in vsplit if current entry is file
 function State:open_vsplit()
-    local new_cwd = self.cwd .. self.display_entries[self.display_current_entry].text
-    if self.display_entries[self.display_current_entry].is_dir then
+    local new_cwd = self.cwd .. self.display_entries[self.display_current_entry_nr].text
+    if self.display_entries[self.display_current_entry_nr].is_dir then
         return
     end
 
@@ -553,7 +634,7 @@ function State:reset_entries()
 
     self.display_entries = {}
     self.display_entries_nr = 0
-    self.display_current_entry = -1
+    self.display_current_entry_nr = -1
 end
 
 ---@private

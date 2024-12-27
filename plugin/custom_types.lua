@@ -7,6 +7,7 @@
 ---@field height_scale number: Defaults to 0.92
 ---@field show_hidden boolean: Defaults to true
 ---@field mark_icons file_browser.MarkIcons: Icons used for marks
+---@field debounce number: debounce for preview (in ms)
 
 ---@class file_browser.Icon
 ---@field text string: The icon text
