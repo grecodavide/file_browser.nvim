@@ -55,8 +55,10 @@ end
 ---@field win_configs table<file_browser.LayoutElement, vim.api.keyset.win_config?>: The configs for all windows
 ---@field buffers file_browser.Layout: the Buffers ID (initialized at invalid values)
 ---@field entries file_browser.Entry[]: the Buffers ID (initialized at invalid values)
----@field current_entry number: The current entry. -1 (invalid) by default
 ---@field entries_nr number: The number of entries
+---@field display_entries file_browser.Entry[]: the Buffers ID (initialized at invalid values)
+---@field display_current_entry number: The current entry. -1 (invalid) by default
+---@field display_entries_nr number: The number of entries
 ---@field buf_opts table<file_browser.LayoutElement, vim.bo>
 ---@field win_opts table<file_browser.LayoutElement, vim.wo>
 ---@field options_to_restore table: options that should be restored globally once the windows get closed
@@ -98,7 +100,6 @@ function State:new()
 
         entries = {},
 
-        current_entry = -1,
         entries_nr = 0,
     }, self)
 end
@@ -165,13 +166,61 @@ function State:save_options()
 end
 
 ---Sets options to either original or new value
----@param conf string
+---@param conf "floating"|"original"|nil: defaults to original
 function State:set_options(conf)
     for option, value in pairs(self.options_to_restore) do
         vim.opt[option] = value[conf] or value.original
     end
 end
 
+function State:create_autocmds()
+    local augroup = vim.api.nvim_create_augroup("file-browser", { clear = true })
+
+    vim.api.nvim_create_autocmd("WinLeave", {
+        group = augroup,
+        buffer = self.buffers.prompt,
+        callback = function()
+            self:set_options("original")
+        end,
+    })
+    vim.api.nvim_create_autocmd("WinEnter", {
+        group = augroup,
+        buffer = self.buffers.results,
+        callback = function()
+            self:set_options("floating")
+        end,
+    })
+    vim.api.nvim_create_autocmd("WinEnter", {
+        group = augroup,
+        buffer = self.buffers.prompt,
+        callback = function()
+            self:set_options("floating")
+        end,
+    })
+
+    vim.api.nvim_create_autocmd("CursorMoved", {
+        group = augroup,
+        buffer = self.buffers.results,
+        callback = function()
+            local line = vim.api.nvim_win_get_cursor(self.windows.results)[1]
+            vim.api.nvim_win_set_cursor(self.windows.results_icon, { line, 0 })
+        end,
+    })
+
+    -- TODO: autocmd on BufModified to filter results
+
+    vim.api.nvim_create_autocmd("TextChangedI", {
+        group = augroup,
+        buffer = self.buffers.prompt,
+        callback = function()
+            self:filter_results()
+        end,
+    })
+end
+
+--- Saves options, and then IF the windows are not valid, then create them
+---@param width_scale number: Percentage of width
+---@param height_scale number: Percentage of height
 function State:create_windows(width_scale, height_scale)
     self:save_options()
     self:windo(function(kind, value)
@@ -193,51 +242,55 @@ function State:create_windows(width_scale, height_scale)
 
     vim.bo[self.buffers.prompt].filetype = "prompt"
 
-    vim.api.nvim_create_autocmd("WinLeave", {
-        buffer = self.buffers.prompt,
-        callback = function()
-            self:set_options("original")
-        end,
-    })
-    vim.api.nvim_create_autocmd("WinEnter", {
-        buffer = self.buffers.results,
-        callback = function()
-            self:set_options("floating")
-        end,
-    })
-    vim.api.nvim_create_autocmd("WinEnter", {
-        buffer = self.buffers.prompt,
-        callback = function()
-            self:set_options("floating")
-        end,
-    })
-
-    vim.api.nvim_create_autocmd("CursorMoved", {
-        buffer = self.buffers.results,
-        callback = function()
-            local line = vim.api.nvim_win_get_cursor(self.windows.results)[1]
-            vim.api.nvim_win_set_cursor(self.windows.results_icon, { line, 0 })
-        end,
-    })
+    self:create_autocmds()
 end
 
---- Goes to a given directory, populating results and updating the state.
----@param cwd string: The path to cd to
----@param start_insert boolean?: Whether we should start in insert mode. Defaults to true
-function State:cd(cwd, start_insert)
-    self:reset_entries()
-    if start_insert == nil or start_insert then
-        vim.cmd([[startinsert]])
+function State:reset_display_entries()
+    self.display_entries = vim.deepcopy(self.entries)
+    self.display_entries_nr = self.entries_nr
+end
+
+local function contains(tbl, value)
+    for _, e in ipairs(tbl) do
+        if e == value then
+            return true
+        end
+    end
+    return false
+end
+
+function State:filter_results()
+    local text = vim.api.nvim_buf_get_lines(self.buffers.prompt, 0, 1, false)[1]
+    if text == nil or text == "" then
+        self:reset_display_entries()
+    else
+        local texts = vim.iter(self.entries)
+            :map(function(entry)
+                return entry.text
+            end)
+            :totable()
+
+        local texts_str = table.concat(texts, "\n")
+        local cmd = string.format("echo '%s' | fzf --filter='%s'", texts_str, text)
+        local results = vim.split(io.popen(cmd, "r"):read("*a"), "\n")
+
+        self.display_entries = vim.iter(self.entries)
+            :filter(function(entry)
+                return contains(results, entry.text)
+            end)
+            :totable()
+        self.display_entries_nr = #self.display_entries
     end
 
-    self:update_prompt(cwd, dir_hl)
-    self:get_entries(self.cwd)
+    self:show_entries()
+end
 
+function State:show_entries()
     local entry
     vim.api.nvim_buf_set_lines(self.buffers.results, 0, -1, false, {})
     vim.api.nvim_buf_set_lines(self.buffers.results_icon, 0, -1, false, {})
-    for row = 1, self.entries_nr do
-        entry = self.entries[row]
+    for row = 1, self.display_entries_nr do
+        entry = self.display_entries[row]
         vim.api.nvim_buf_set_lines(self.buffers.results, row - 1, row - 1, false, { entry.text })
         vim.api.nvim_buf_set_lines(self.buffers.results_icon, row - 1, row - 1, false, { entry.icon.text })
         vim.api.nvim_buf_add_highlight(self.buffers.results_icon, 0, entry.icon.hl, row - 1, 0, -1)
@@ -276,19 +329,19 @@ function State:jump(index, absolute)
     if absolute then
         new_curr = index
     else
-        new_curr = self.current_entry + index
+        new_curr = self.display_current_entry + index
     end
 
     if new_curr <= 0 then
-        new_curr = self.entries_nr
-    elseif new_curr > self.entries_nr then
+        new_curr = self.display_entries_nr
+    elseif new_curr > self.display_entries_nr then
         new_curr = 1
     end
 
-    self.current_entry = new_curr
+    self.display_current_entry = new_curr
 
-    vim.api.nvim_win_set_cursor(self.windows.results, { self.current_entry, 0 })
-    vim.api.nvim_win_set_cursor(self.windows.results_icon, { self.current_entry, 0 })
+    vim.api.nvim_win_set_cursor(self.windows.results, { self.display_current_entry, 0 })
+    vim.api.nvim_win_set_cursor(self.windows.results_icon, { self.display_current_entry, 0 })
 end
 
 ---Updates the prompt, prompt prefix and cwd
@@ -348,6 +401,10 @@ function State:get_entries(cwd, show_hidden)
 
     self.entries_nr = #self.entries
     self.current_entry = 1
+
+    self.display_entries = vim.deepcopy(self.entries)
+    self.display_entries_nr = self.entries_nr
+    self.display_current_entry = 1
 end
 
 --- Calls given function on every window in the state
@@ -371,12 +428,15 @@ end
 --- Default action. Opens if file, cd if directory
 ---@param cd boolean?: should also change directory
 function State:default_action(cd)
-    local new_cwd = self.cwd .. self.entries[self.current_entry].text
-    if self.entries[self.current_entry].is_dir then
+    local new_cwd = self.cwd .. self.display_entries[self.display_current_entry].text
+    if self.display_entries[self.display_current_entry].is_dir then
         if cd then
             vim.fn.chdir(new_cwd)
         end
         self:cd(new_cwd, is_insert())
+
+        -- reset prompt
+        vim.api.nvim_buf_set_lines(self.buffers.prompt, 0, -1, false, {})
     else
         self:windo(function(_, value)
             vim.api.nvim_win_close(value, true)
@@ -395,6 +455,10 @@ function State:reset_entries()
     self.entries = {}
     self.entries_nr = 0
     self.current_entry = -1
+
+    self.display_entries = {}
+    self.display_entries_nr = 0
+    self.display_current_entry = -1
 end
 
 ---@private
