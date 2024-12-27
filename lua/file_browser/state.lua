@@ -1,3 +1,16 @@
+-- TODO:
+-- Actions to implement:
+-- - cd (with ./<C-.>)
+-- - create new file/dir
+-- - move file/dir
+-- - delete file/dir
+-- - oil like shit
+-- Possible option: autocmd on text yank that saves the chosen entry/ies, and if deleted remove from display list
+-- Things to do:
+-- - edit sorting, fzf will match better :)
+-- - preview
+-- - add option to determine percentage of prompt before trimming it
+
 --- Create cmd to get all entries matching a certain type in the given directory, and get its output
 ---@param path string: The path to search into
 ---@param type "f"|"d"|"l": The type to match.
@@ -49,6 +62,9 @@ local is_insert = function()
     return vim.fn.mode() == "i"
 end
 
+-- TODO: state should also contain a "marked" value, containing all file
+-- marked for either selection or cut
+
 ---@class file_browser.State
 ---@field windows file_browser.Layout: the Windows ID (initialized at invalid values)
 ---@field results_width number: the size of results width
@@ -63,11 +79,13 @@ end
 ---@field win_opts table<file_browser.LayoutElement, vim.wo>
 ---@field options_to_restore table: options that should be restored globally once the windows get closed
 ---@field cwd string
+---@field width_scale number
+---@field height_scale number
 local State = {}
 
 ---Returns a default state
 ---@return file_browser.State
-function State:new()
+function State:new(width_scale, height_scale)
     return setmetatable({
         cwd = "",
         options_to_restore = {
@@ -99,8 +117,14 @@ function State:new()
         },
 
         entries = {},
-
         entries_nr = 0,
+
+        display_entries = {},
+        display_current_entry = -1,
+        display_entries_nr = 0,
+
+        width_scale = width_scale,
+        height_scale = height_scale,
     }, self)
 end
 
@@ -134,6 +158,9 @@ function State:create_mappings()
 
     map({ "n", "i" }, "<CR>", function()
         self:default_action()
+    end, { self.buffers.prompt, self.buffers.results })
+    map({ "n", "i" }, "<C-v>", function()
+        self:open_vsplit()
     end, { self.buffers.prompt, self.buffers.results })
     map({ "n", "i" }, "<S-CR>", function()
         self:default_action(true)
@@ -207,8 +234,6 @@ function State:create_autocmds()
         end,
     })
 
-    -- TODO: autocmd on BufModified to filter results
-
     vim.api.nvim_create_autocmd("TextChangedI", {
         group = augroup,
         buffer = self.buffers.prompt,
@@ -223,12 +248,15 @@ end
 ---@param height_scale number: Percentage of height
 function State:create_windows(width_scale, height_scale)
     self:save_options()
+    self.win_configs, self.results_width = utils.get_win_configs(width_scale, height_scale)
+    self.buf_opts, self.win_opts = utils.get_opts()
+
     self:windo(function(kind, value)
-        self.win_configs, self.results_width = utils.get_win_configs(width_scale, height_scale)
-        self.buf_opts, self.win_opts = utils.get_opts()
+        if not vim.api.nvim_buf_is_valid(self.buffers[kind]) then
+            self.buffers[kind] = vim.api.nvim_create_buf(false, true)
+        end
 
         if not vim.api.nvim_win_is_valid(value) then
-            self.buffers[kind] = vim.api.nvim_create_buf(false, true)
             self.windows[kind] = vim.api.nvim_open_win(self.buffers[kind], false, self.win_configs[kind])
         end
         for opt, v in pairs(self.buf_opts[kind]) do
@@ -241,8 +269,8 @@ function State:create_windows(width_scale, height_scale)
     end)
 
     vim.bo[self.buffers.prompt].filetype = "prompt"
-
     self:create_autocmds()
+    self:create_mappings()
 end
 
 function State:reset_display_entries()
@@ -259,6 +287,24 @@ local function contains(tbl, value)
     return false
 end
 
+function State:index(value)
+    for i, e in ipairs(self.entries) do
+        if e.text == value then
+            return i
+        end
+    end
+    return -1
+end
+
+function State:index_display(value)
+    for i, e in ipairs(self.display_entries) do
+        if e.text == value then
+            return i
+        end
+    end
+    return -1
+end
+
 function State:filter_results()
     local text = vim.api.nvim_buf_get_lines(self.buffers.prompt, 0, 1, false)[1]
     if text == nil or text == "" then
@@ -270,15 +316,14 @@ function State:filter_results()
             end)
             :totable()
 
-        local texts_str = table.concat(texts, "\n")
-        local cmd = string.format("echo '%s' | fzf --filter='%s'", texts_str, text)
+        local cmd = string.format("echo '%s' | fzf --filter='%s'", table.concat(texts, "\n"), text)
         local results = vim.split(io.popen(cmd, "r"):read("*a"), "\n")
 
-        self.display_entries = vim.iter(self.entries)
-            :filter(function(entry)
-                return contains(results, entry.text)
-            end)
-            :totable()
+        self.display_entries = {}
+        vim.iter(results):each(function(t)
+            local i = self:index(t)
+            table.insert(self.display_entries, self.entries[i])
+        end)
         self.display_entries_nr = #self.display_entries
     end
 
@@ -287,17 +332,21 @@ end
 
 function State:show_entries()
     local entry
+
     vim.api.nvim_buf_set_lines(self.buffers.results, 0, -1, false, {})
     vim.api.nvim_buf_set_lines(self.buffers.results_icon, 0, -1, false, {})
     for row = 1, self.display_entries_nr do
         entry = self.display_entries[row]
-        vim.api.nvim_buf_set_lines(self.buffers.results, row - 1, row - 1, false, { entry.text })
-        vim.api.nvim_buf_set_lines(self.buffers.results_icon, row - 1, row - 1, false, { entry.icon.text })
+        -- row-1, row so that we effectively overwrite empty line
+        vim.api.nvim_buf_set_lines(self.buffers.results, row - 1, row, false, { entry.text })
+        vim.api.nvim_buf_set_lines(self.buffers.results_icon, row - 1, row, false, { entry.icon.text })
         vim.api.nvim_buf_add_highlight(self.buffers.results_icon, 0, entry.icon.hl, row - 1, 0, -1)
         vim.api.nvim_buf_add_highlight(self.buffers.results, 0, entry.icon.hl, row - 1, 0, -1)
     end
 
-    self:jump(1, true)
+    -- if self.display_current_entry == -1 then
+    self:jump(1, true) -- reset current entry to first, usually you want the first result when you search stuff
+    -- end
 end
 
 --- Goes to a given directory, populating results and updating the state.
@@ -311,13 +360,16 @@ function State:cd(cwd, start_insert, show_hidden)
     end
 
     self:update_prompt(cwd, dir_hl)
-    self:get_entries(self.cwd, show_hidden or true)
+    self:get_entries(show_hidden or true)
 
     self:show_entries()
 end
 
---- Focuses the prompt window
+--- Focuses the prompt window, creating windows if not valid
 function State:focus()
+    if not vim.api.nvim_win_is_valid(self.windows.prompt) then
+        self:create_windows(self.width_scale, self.height_scale)
+    end
     vim.api.nvim_set_current_win(self.windows.prompt)
 end
 
@@ -361,10 +413,9 @@ function State:update_prompt(cwd, prefix_hl)
 end
 
 ---Populates the state with the entries for the current directory
----@param cwd string
 ---@param show_hidden boolean
-function State:get_entries(cwd, show_hidden)
-    local directories = get_cmd(cwd, "d", show_hidden)
+function State:get_entries(show_hidden)
+    local directories = get_cmd(self.cwd, "d", show_hidden)
     for _, dir in pairs(directories) do
         if dir and dir ~= "" then
             table.insert(self.entries, {
@@ -378,7 +429,7 @@ function State:get_entries(cwd, show_hidden)
         end
     end
 
-    local links = get_cmd(cwd, "l", show_hidden)
+    local links = get_cmd(self.cwd, "l", show_hidden)
     for _, link in pairs(links) do
         if link and link ~= "" then
             table.insert(self.entries, {
@@ -392,7 +443,7 @@ function State:get_entries(cwd, show_hidden)
         end
     end
 
-    local files = get_cmd(cwd, "f", show_hidden)
+    local files = get_cmd(self.cwd, "f", show_hidden)
     for _, file in pairs(files) do
         if file and file ~= "" then
             table.insert(self.entries, transform(file))
@@ -404,7 +455,6 @@ function State:get_entries(cwd, show_hidden)
 
     self.display_entries = vim.deepcopy(self.entries)
     self.display_entries_nr = self.entries_nr
-    self.display_current_entry = 1
 end
 
 --- Calls given function on every window in the state
@@ -448,6 +498,26 @@ function State:default_action(cd)
         end
         vim.cmd.edit(new_cwd)
     end
+end
+
+--- Close all windows
+function State:close()
+    self:windo(function(_, value)
+        vim.api.nvim_win_close(value, true)
+    end)
+end
+
+--- Opens in vsplit if current entry is file
+function State:open_vsplit()
+    local new_cwd = self.cwd .. self.display_entries[self.display_current_entry].text
+    if self.display_entries[self.display_current_entry].is_dir then
+        return
+    end
+
+    utils.normal_mode()
+    self:close()
+
+    vim.cmd.vsplit(new_cwd)
 end
 
 --- Empties the list of entries

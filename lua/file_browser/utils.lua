@@ -4,15 +4,24 @@ local M = {}
 ---@return table<string, vim.bo>, table<string, vim.wo>: A table containing, for each window, all buffer and windows options
 M.get_opts = function()
     return {
-        prompt_prefix = {},
+        prompt_prefix = {
+            bufhidden = "wipe",
+        },
         prompt = {
             bufhidden = "wipe",
         },
-        results = {},
-        results_icon = {},
-        preview = {},
-
-        padding = {},
+        results = {
+            bufhidden = "wipe",
+        },
+        results_icon = {
+            bufhidden = "wipe",
+        },
+        preview = {
+            bufhidden = "wipe",
+        },
+        padding = {
+            bufhidden = "wipe",
+        },
     }, {
         prompt_prefix = {
             cursorline = false,

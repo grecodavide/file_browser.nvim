@@ -3,6 +3,12 @@ M.dir_hl = "MiniIconsBlue"
 
 local utils = require("file_browser.utils")
 
+local set_up = false
+
+M.is_set_up = function()
+    return set_up
+end
+
 ---@type file_browser.Config
 M.opts = {
     start_insert = true,
@@ -11,23 +17,34 @@ M.opts = {
     width_scale = 0.92,
     height_scale = 0.92,
     show_hidden = true,
+
+    mark_icons = {
+        selected = {
+            text = "█",
+            hl = "MiniIconsYellow",
+        },
+        cut = {
+            text = "█",
+            hl = "MiniIconsRed",
+        },
+    },
 }
 local state
 
 ---Opens the main window
 ---@param cwd string?: The path to search into. Default to cwd
 M.open = function(cwd)
-    state:create_windows(M.opts.width_scale, M.opts.height_scale)
     state:focus()
 
-    cwd = cwd or vim.fn.getcwd()
+    if cwd == nil or cwd == "" then
+        cwd = vim.fn.getcwd()
+    end
 
     if cwd:sub(#cwd) ~= "/" then
         cwd = cwd .. "/"
     end
 
     state:cd(cwd, M.opts.start_insert, M.show_hidden)
-    state:create_mappings()
 end
 
 ---Sets up the plugin. Must always be called once
@@ -35,15 +52,11 @@ end
 M.setup = function(opts)
     M.opts = vim.tbl_deep_extend("force", M.opts, opts or {})
 
-    state = require("file_browser.state"):new()
+    state = require("file_browser.state"):new(M.opts.width_scale, M.opts.height_scale)
+
     utils.save_options(state.options_to_restore)
+
+    set_up = true
 end
-
-M.setup({
-    height_scale = 0.85,
-})
-
-M.open("~/.config/nvim")
--- M.open("~/shiny-potato/")
 
 return M
