@@ -7,9 +7,9 @@
 -- - oil like shit
 -- Possible option: autocmd on text yank that saves the chosen entry/ies, and if deleted remove from display list
 -- Things to do:
--- - edit sorting, fzf will match better :)
--- - preview
--- - add option to determine percentage of prompt before trimming it
+-- - add option to determine percentage of prompt before trimming it: for example we can
+--   add option to opts defining the percentage, and on update_prompt do a check: if len > max_len ( = winconf.prompt.width * percentage)
+--   then print only the last max_len chars
 
 --- Create cmd to get all entries matching a certain type in the given directory, and get its output
 ---@param path string: The path to search into
@@ -17,17 +17,18 @@
 ---@param show_hidden boolean: Whether to show hidden files
 ---@return string[]: The output for this command
 local function get_cmd(path, type, show_hidden)
+    print(path)
     if show_hidden then
         if type == "a" then
-            return vim.split(io.popen(string.format("cd %s && fd --hidden --exact-depth=1", path), "r"):read("*a"), "\n")
+            return vim.split(io.popen(string.format("cd '%s' && fd --hidden --exact-depth=1", path), "r"):read("*a"), "\n")
         end
-        return vim.split(io.popen(string.format("cd %s && fd --hidden --exact-depth=1 -t %s", path, type), "r"):read("*a"), "\n")
+        return vim.split(io.popen(string.format("cd '%s' && fd --hidden --exact-depth=1 -t %s", path, type), "r"):read("*a"), "\n")
     end
 
     if type == "a" then
-        return vim.split(io.popen(string.format("cd %s && fd --exact-depth=1", path), "r"):read("*a"), "\n")
+        return vim.split(io.popen(string.format("cd '%s' && fd --exact-depth=1", path), "r"):read("*a"), "\n")
     end
-    return vim.split(io.popen(string.format("cd %s && fd --exact-depth=1 -t %s", path, type), "r"):read("*a"), "\n")
+    return vim.split(io.popen(string.format("cd '%s' && fd --exact-depth=1 -t %s", path, type), "r"):read("*a"), "\n")
 end
 
 local mini_icons = require("mini.icons")
@@ -71,7 +72,7 @@ local is_insert = function()
     return vim.fn.mode() == "i"
 end
 
-local create_entries = function(cwd, show_hidden, tbl)
+local create_entries = function(cwd, display_links, show_hidden, tbl)
     local directories = get_cmd(cwd, "d", show_hidden)
     for _, dir in pairs(directories) do
         if dir and dir ~= "" then
@@ -87,18 +88,20 @@ local create_entries = function(cwd, show_hidden, tbl)
         end
     end
 
-    local links = get_cmd(cwd, "l", show_hidden)
-    for _, link in pairs(links) do
-        if link and link ~= "" then
-            table.insert(tbl, {
-                icon = {
-                    text = link_icon_text,
-                    hl = link_icon_hl,
-                },
-                text = link,
-                is_dir = false,
-                marked = false,
-            })
+    if display_links then
+        local links = get_cmd(cwd, "l", show_hidden)
+        for _, link in pairs(links) do
+            if link and link ~= "" then
+                table.insert(tbl, {
+                    icon = {
+                        text = link_icon_text,
+                        hl = link_icon_hl,
+                    },
+                    text = link,
+                    is_dir = false,
+                    marked = false,
+                })
+            end
         end
     end
 
@@ -133,11 +136,12 @@ end
 ---@field marked_icons file_browser.MarkIcons
 ---@field marked {selected: file_browser.Entry[], cut: file_browser.Entry[]}
 ---@field debounce number
+---@field display_links boolean
 local State = {}
 
 ---Returns a default state
 ---@return file_browser.State
-function State:new(debounce, show_hidden, width_scale, height_scale, marked_icons)
+function State:new(debounce, display_links, show_hidden, width_scale, height_scale, marked_icons)
     marked_icons = {
         selected = {
             text = string.format(" %s", marked_icons.selected.text),
@@ -196,6 +200,7 @@ function State:new(debounce, show_hidden, width_scale, height_scale, marked_icon
         show_hidden = show_hidden,
 
         debounce = debounce,
+        display_links = display_links,
     }, self)
 end
 
@@ -204,20 +209,45 @@ function State:get_prompt()
 end
 
 function State:create_mappings()
-    map("n", "<Esc>", "<cmd>fc!<CR>", self.buffers.prompt)
+    -- #############
+    -- ### CLOSE ###
+    -- #############
+    map("n", "<Esc>", function()
+        self:close()
+    end, self.buffers.prompt)
 
+    -- ######################
+    -- ### HANDLE PREVIEW ###
+    -- ######################
+    map({ "i", "n" }, "<C-d>", function()
+        vim.api.nvim_win_set_cursor(self.windows.preview, { math.min(vim.fn.line("w$", self.windows.preview) + 1, vim.fn.line("$", self.windows.preview)), 0 })
+    end, { self.buffers.prompt, self.buffers.results })
+    map({ "i", "n" }, "<C-u>", function()
+        vim.api.nvim_win_set_cursor(self.windows.preview, { math.max(vim.fn.line("w0", self.windows.preview) - 1, 1), 0 })
+    end, { self.buffers.prompt, self.buffers.results })
+
+    -- ####################
+    -- ### GOTO RESULTS ###
+    -- ####################
     map("i", "<C-f>", function()
         utils.normal_mode()
         vim.api.nvim_set_current_win(self.windows.results)
-    end, self.buffers.prompt)
-    map("i", "<C-s>", function()
-        self.display_entries[self.display_current_entry_nr].marked = not self.display_entries[self.display_current_entry_nr].marked
-        self:show_entries()
     end, self.buffers.prompt)
     map({ "n" }, "e", function()
         vim.api.nvim_set_current_win(self.windows.results)
     end, self.buffers.prompt)
 
+    -- ###############
+    -- ### MARKING ###
+    -- ###############
+    map("i", "<C-s>", function()
+        self.display_entries[self.display_current_entry_nr].marked = not self.display_entries[self.display_current_entry_nr].marked
+        self:show_entries()
+    end, self.buffers.prompt)
+
+    -- ########################
+    -- ### RESULTS HANDLING ###
+    -- ########################
     map({ "n", "i" }, "<C-n>", function()
         self:jump(1)
     end, self.buffers.prompt)
@@ -230,7 +260,6 @@ function State:create_mappings()
     map({ "n" }, "k", function()
         self:jump(-1)
     end, { self.buffers.prompt, self.buffers.results })
-
     map({ "n", "i" }, "<CR>", function()
         self:default_action()
     end, { self.buffers.prompt, self.buffers.results })
@@ -241,6 +270,9 @@ function State:create_mappings()
         self:default_action(true)
     end, { self.buffers.prompt, self.buffers.results })
 
+    -- ##############
+    -- ### PROMPT ###
+    -- ##############
     map({ "i", "n" }, "<BS>", function()
         if self:get_prompt() == "" then
             self:goto_parent(is_insert())
@@ -514,7 +546,7 @@ function State:update_preview()
     local fullpath = self.cwd .. curr.text
     if curr.is_dir then
         local tmp = {}
-        create_entries(fullpath, self.show_hidden, tmp)
+        create_entries(fullpath, self.display_links, self.show_hidden, tmp)
 
         vim.api.nvim_buf_set_lines(self.buffers.preview, 0, -1, false, {})
         local entry
@@ -554,7 +586,7 @@ end
 
 ---Populates the state with the entries for the current directory
 function State:get_entries()
-    create_entries(self.cwd, self.show_hidden, self.entries)
+    create_entries(self.cwd, self.display_links, self.show_hidden, self.entries)
 
     self.entries_nr = #self.entries
     self.current_entry = 1
