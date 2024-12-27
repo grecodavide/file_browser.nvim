@@ -1,8 +1,12 @@
 --- Create cmd to get all entries matching a certain type in the given directory, and get its output
 ---@param path string: The path to search into
 ---@param type "f"|"d"|"l": The type to match.
+---@param show_hidden boolean: Whether to show hidden files
 ---@return string[]: The output for this command
-local function get_cmd(path, type)
+local function get_cmd(path, type, show_hidden)
+    if show_hidden then
+        return vim.split(io.popen(string.format("cd %s && fd --hidden --exact-depth=1 -t %s", path, type), "r"):read("*a"), "\n")
+    end
     return vim.split(io.popen(string.format("cd %s && fd --exact-depth=1 -t %s", path, type), "r"):read("*a"), "\n")
 end
 
@@ -243,6 +247,22 @@ function State:cd(cwd, start_insert)
     self:jump(1, true)
 end
 
+--- Goes to a given directory, populating results and updating the state.
+---@param cwd string: The path to cd to
+---@param start_insert boolean?: Whether we should start in insert mode. Defaults to true
+---@param show_hidden boolean?: Whether to show hidden files. defaults to true
+function State:cd(cwd, start_insert, show_hidden)
+    self:reset_entries()
+    if start_insert == nil or start_insert then
+        vim.cmd([[startinsert]])
+    end
+
+    self:update_prompt(cwd, dir_hl)
+    self:get_entries(self.cwd, show_hidden or true)
+
+    self:show_entries()
+end
+
 --- Focuses the prompt window
 function State:focus()
     vim.api.nvim_set_current_win(self.windows.prompt)
@@ -289,8 +309,9 @@ end
 
 ---Populates the state with the entries for the current directory
 ---@param cwd string
-function State:get_entries(cwd)
-    local directories = get_cmd(cwd, "d")
+---@param show_hidden boolean
+function State:get_entries(cwd, show_hidden)
+    local directories = get_cmd(cwd, "d", show_hidden)
     for _, dir in pairs(directories) do
         if dir and dir ~= "" then
             table.insert(self.entries, {
@@ -304,7 +325,7 @@ function State:get_entries(cwd)
         end
     end
 
-    local links = get_cmd(cwd, "l")
+    local links = get_cmd(cwd, "l", show_hidden)
     for _, link in pairs(links) do
         if link and link ~= "" then
             table.insert(self.entries, {
@@ -318,7 +339,7 @@ function State:get_entries(cwd)
         end
     end
 
-    local files = get_cmd(cwd, "f")
+    local files = get_cmd(cwd, "f", show_hidden)
     for _, file in pairs(files) do
         if file and file ~= "" then
             table.insert(self.entries, transform(file))

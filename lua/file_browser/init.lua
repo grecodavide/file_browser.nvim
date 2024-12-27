@@ -10,6 +10,7 @@ M.opts = {
     group_dirs = true,
     width_scale = 0.92,
     height_scale = 0.92,
+    show_hidden = true,
 }
 local state
 
@@ -25,7 +26,7 @@ M.open = function(cwd)
         cwd = cwd .. "/"
     end
 
-    state:cd(cwd, M.opts.start_insert)
+    state:cd(cwd, M.opts.start_insert, M.show_hidden)
     state:create_mappings()
 end
 

@@ -4,6 +4,7 @@
 ---@field display_symlinks boolean?: Wehter we should show symlinks or not. Defaults to true
 ---@field width_scale number?: Defaults to 0.92
 ---@field height_scale number?: Defaults to 0.92
+---@field show_hidden boolean?: Defaults to true
 
 ---@class file_browser.Icon
 ---@field text string: The icon text
