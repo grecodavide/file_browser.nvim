@@ -80,8 +80,8 @@ M.get_win_configs = function(width_scale, height_scale, preview_scale)
     local height = vim.o.lines
 
     -- bitshift because the padding is on both sides, so half the remaining space
-    local base_row = bit.rshift(math.floor(height * (1 - height_scale)), 1)
-    local base_col = bit.rshift(math.floor(width * (1 - width_scale)), 1)
+    local base_row = bit.rshift(math.ceil(height * (1 - height_scale)), 1)
+    local base_col = bit.rshift(math.ceil(width * (1 - width_scale)), 1)
 
     width = math.ceil(width * width_scale)
     height = math.ceil(height * height_scale)

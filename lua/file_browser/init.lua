@@ -32,7 +32,7 @@ M.opts = {
         },
     },
 
-    debounce = 150,
+    debounce = 200,
 }
 local state
 

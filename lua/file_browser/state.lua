@@ -124,7 +124,7 @@ end
 ---@field entries file_browser.Entry[]: the Buffers ID (initialized at invalid values)
 ---@field entries_nr number: The number of entries
 ---@field display_entries file_browser.Entry[]: the Buffers ID (initialized at invalid values)
----@field display_current_entry_nr number: The current entry. -1 (invalid) by default
+---@field display_current_entry_idx number: The current entry. -1 (invalid) by default
 ---@field display_entries_nr number: The number of entries
 ---@field buf_opts table<file_browser.LayoutElement, vim.bo>
 ---@field win_opts table<file_browser.LayoutElement, vim.wo>
@@ -390,6 +390,9 @@ function State:reset_display_entries()
     self.display_entries_nr = self.entries_nr
 end
 
+--- Get index of entry in the `entries` table
+---@param value string: The text to search
+---@return number index of entry in `entries`. -1 if not found
 function State:index(value)
     for i, e in ipairs(self.entries) do
         if e.text == value then
@@ -399,6 +402,9 @@ function State:index(value)
     return -1
 end
 
+--- Gets the index in display value
+---@param value string
+---@return integer
 function State:index_display(value)
     for i, e in ipairs(self.display_entries) do
         if e.text == value then
@@ -433,9 +439,10 @@ function State:filter_results()
     self:show_entries()
 end
 
-function State:show_entries()
+--- Displays the current `display_entries`.
+---@param should_jump boolean?: Whether it should jump to first result of the list. Defaults to true
+function State:show_entries(should_jump)
     local entry
-
     vim.api.nvim_buf_set_lines(self.buffers.results, 0, -1, false, {})
     vim.api.nvim_buf_set_lines(self.buffers.results_icon, 0, -1, false, {})
     vim.api.nvim_buf_set_lines(self.buffers.padding, 0, -1, false, {})
@@ -518,7 +525,9 @@ function State:update_preview()
         vim.api.nvim_set_current_win(self.windows.preview)
         vim.cmd(string.format("silent read %s", fullpath))
         vim.api.nvim_buf_set_lines(self.buffers.preview, 0, 1, false, {}) -- remove first line, as read on empty buf will always leave the first line empty
-        vim.bo[self.buffers.preview].filetype = vim.filetype.match({ filename = curr.text }) or ""
+        local ft = vim.filetype.match({ filename = curr.text }) or ""
+        vim.cmd.set("syntax=" .. ft)
+        -- vim.bo[self.buffers.preview].filetype = vim.filetype.match({ filename = curr.text }) or ""
         vim.api.nvim_set_current_win(self.windows.prompt)
     end
 end
@@ -629,7 +638,7 @@ function State:reset_entries()
 
     self.display_entries = {}
     self.display_entries_nr = 0
-    self.display_current_entry_nr = -1
+    self.display_current_entry_idx = -1
 end
 
 ---@private

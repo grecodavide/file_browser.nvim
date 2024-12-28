@@ -24,6 +24,7 @@
 ---@field icon file_browser.Icon: icon
 ---@field is_dir boolean: is it a directory?
 ---@field marked boolean: is it selected?
+---@field marked_cut boolean: is it selected for cutting?
 
 ---@class file_browser.Entries
 ---@field texts string[]: text
