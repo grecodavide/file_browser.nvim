@@ -133,15 +133,19 @@ end
 ---@field show_hidden boolean
 ---@field width_scale number
 ---@field height_scale number
+---@field preview_width number
+---@field max_prompt_size number
 ---@field marked_icons file_browser.MarkIcons
 ---@field marked {selected: file_browser.Entry[], cut: file_browser.Entry[]}
 ---@field debounce number
 ---@field display_links boolean
 local State = {}
 
+local actions
+
 ---Returns a default state
 ---@return file_browser.State
-function State:new(debounce, display_links, show_hidden, width_scale, height_scale, marked_icons)
+function State:new(debounce, display_links, show_hidden, width_scale, height_scale, preview_width, max_prompt_size, marked_icons)
     marked_icons = {
         selected = {
             text = string.format(" %s", marked_icons.selected.text),
@@ -194,6 +198,8 @@ function State:new(debounce, display_links, show_hidden, width_scale, height_sca
 
         width_scale = width_scale,
         height_scale = height_scale,
+        preview_width = preview_width,
+        max_prompt_size = max_prompt_size,
 
         marked_icons = marked_icons,
 
@@ -351,12 +357,10 @@ function State:create_autocmds()
 end
 
 --- Saves options, and then IF the windows are not valid, then create them
----@param width_scale number: Percentage of width
----@param height_scale number: Percentage of height
-function State:create_windows(width_scale, height_scale)
+function State:create_windows()
     self:save_options()
 
-    self.win_configs, self.results_width = utils.get_win_configs(width_scale, height_scale)
+    self.win_configs, self.results_width = utils.get_win_configs(self.width_scale, self.height_scale, self.preview_width)
     self.buf_opts, self.win_opts = utils.get_opts()
 
     self:windo(function(kind, value)
@@ -473,73 +477,24 @@ end
 --- Focuses the prompt window, creating windows if not valid
 function State:focus()
     if not vim.api.nvim_win_is_valid(self.windows.prompt) then
-        self:create_windows(self.width_scale, self.height_scale)
+        self:create_windows()
     end
     vim.api.nvim_set_current_win(self.windows.prompt)
 end
-
--- init as nil: never called
-local update_preview = nil
-
--- this function does handles the debounce: basically
-local function defer_with_cancel(func, delay)
-    local timer = vim.loop.new_timer()
-
-    -- Start the timer
-    timer:start(delay, 0, function()
-        vim.schedule(func) -- Schedule the function on Neovim's main thread
-        timer:stop()
-        timer:close()
-    end)
-
-    -- Return a cancel function: if we call the return value of this function,
-    -- we will stop the execution of the given function (as long as the time did not elapse)
-    return function()
-        if not timer:is_closing() then
-            timer:stop()
-            timer:close()
-        end
-    end
+function State:get_selected()
+    vim.print(marked)
 end
 
----Jumps to a given entry in the list, by specifying an index
----@param index number: the index to jump to (relative or absolute)
----@param absolute boolean?: Whether the given index is absolute. Defaults to false
-function State:jump(index, absolute)
-    local new_curr
-    if absolute then
-        new_curr = index
-    else
-        new_curr = self.display_current_entry_nr + index
-    end
-
-    if new_curr <= 0 then
-        new_curr = self.display_entries_nr
-    elseif new_curr > self.display_entries_nr then
-        new_curr = 1
-    end
-
-    self.display_current_entry_nr = new_curr
-
-    vim.api.nvim_win_set_cursor(self.windows.results, { self.display_current_entry_nr, 0 })
-    vim.api.nvim_win_set_cursor(self.windows.padding, { self.display_current_entry_nr, 0 })
-    vim.api.nvim_win_set_cursor(self.windows.results_icon, { self.display_current_entry_nr, 0 })
-
-    -- if update_preview is not nil we already called the function in the last `self.debounce` ms!
-    -- so we need to cancel that call
-    if update_preview ~= nil then
-        update_preview()
-    end
-
-    -- Defer the update of preview window
-    update_preview = defer_with_cancel(function()
-        self:update_preview()
-        update_preview = nil
-    end, self.debounce)
+function State:get_selected_cut()
+    return vim.iter(self.entries)
+        :filter(function(entry)
+            return entry.marked_cut
+        end)
+        :totable()
 end
 
 function State:update_preview()
-    local curr = self.display_entries[self.display_current_entry_nr]
+    local curr = self.display_entries[self.display_current_entry_idx]
     if curr == nil then
         return
     end
@@ -572,13 +527,21 @@ end
 ---@param cwd string: The path to show as a prefix
 ---@param prefix_hl string: the hl group to be assigned to the prompt prefix
 function State:update_prompt(cwd, prefix_hl)
-    self.win_configs.prompt_prefix.width = #cwd
-    self.win_configs.prompt.col = self.win_configs.prompt_prefix.col + #cwd + 1
-    self.win_configs.prompt.width = self.results_width - (#cwd + 1)
+    local max_len = math.floor(self.win_configs.prompt.width * self.max_prompt_size)
+    local prefix_len = #cwd
+    local display_cwd = cwd
+    if prefix_len > max_len then
+        display_cwd = string.format("...%s", cwd:sub(prefix_len - max_len + 4))
+        prefix_len = max_len
+    end
+
+    self.win_configs.prompt_prefix.width = prefix_len
+    self.win_configs.prompt.col = self.win_configs.prompt_prefix.col + prefix_len + 1
+    self.win_configs.prompt.width = self.results_width - (prefix_len + 1)
     vim.api.nvim_win_set_config(self.windows.prompt_prefix, self.win_configs.prompt_prefix)
     vim.api.nvim_win_set_config(self.windows.prompt, self.win_configs.prompt)
 
-    vim.api.nvim_buf_set_lines(self.buffers.prompt_prefix, 0, -1, false, { cwd })
+    vim.api.nvim_buf_set_lines(self.buffers.prompt_prefix, 0, -1, false, { display_cwd })
     vim.api.nvim_buf_add_highlight(self.buffers.prompt_prefix, 0, prefix_hl, 0, 0, -1)
 
     self:set_cwd(cwd)

@@ -16,6 +16,9 @@ M.opts = {
     group_dirs = true,
     width_scale = 0.92,
     height_scale = 0.92,
+    preview_width = 0.4,
+    max_prompt_size = 0.6,
+
     show_hidden = true,
 
     mark_icons = {
@@ -60,6 +63,8 @@ M.setup = function(opts)
         M.opts.show_hidden,
         M.opts.width_scale,
         M.opts.height_scale,
+        M.opts.preview_width,
+        M.opts.max_prompt_size,
         M.opts.mark_icons
     )
 
