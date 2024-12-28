@@ -1,15 +1,20 @@
--- TODO:
--- Actions to implement:
--- - cd (with ./<C-.>)
--- - create new file/dir
--- - move file/dir
--- - delete file/dir
--- - oil like shit
--- Possible option: autocmd on text yank that saves the chosen entry/ies, and if deleted remove from display list
 -- Things to do:
 -- - add option to determine percentage of prompt before trimming it: for example we can
 --   add option to opts defining the percentage, and on update_prompt do a check: if len > max_len ( = winconf.prompt.width * percentage)
 --   then print only the last max_len chars
+
+---@type file_browser.Entry[]
+local marked = {}
+
+--- Sets hl in given buffer
+---@param buffer number: The buffer id
+---@param hl string: The hl name
+---@param line number: line
+---@param col_start number?: First column (0 indexed). Defaults to 0
+---@param col_end number?: Last column (-1 for last). Defaults to -1
+local set_hl = function(buffer, hl, line, col_start, col_end)
+    vim.api.nvim_buf_add_highlight(buffer, 0, hl, line, col_start or 0, col_end or -1)
+end
 
 --- Create cmd to get all entries matching a certain type in the given directory, and get its output
 ---@param path string: The path to search into
@@ -17,7 +22,6 @@
 ---@param show_hidden boolean: Whether to show hidden files
 ---@return string[]: The output for this command
 local function get_cmd(path, type, show_hidden)
-    print(path)
     if show_hidden then
         if type == "a" then
             return vim.split(io.popen(string.format("cd '%s' && fd --hidden --exact-depth=1", path), "r"):read("*a"), "\n")
@@ -214,7 +218,38 @@ function State:get_prompt()
     return vim.api.nvim_buf_get_lines(self.buffers.prompt, 0, -1, false)[1]
 end
 
+function State:search_marked()
+    for i, k in ipairs(marked) do
+        if k.text == self.display_entries[self.display_current_entry_idx].text then
+            return i
+        end
+    end
+
+    return -1
+end
+
+function State:mark_current()
+    local idx = self:search_marked()
+    if idx == -1 then
+        table.insert(marked, self.display_entries[self.display_current_entry_idx])
+    else
+        table.remove(marked, idx)
+    end
+
+    vim.api.nvim_buf_set_lines(
+        self.buffers.padding,
+        self.display_current_entry_idx - 1, -- 0 indexed
+        self.display_current_entry_idx - 1,
+        false,
+        { " " .. self.marked_icons.selected.text }
+    )
+    set_hl(self.buffers.padding, self.marked_icons.selected.hl, self.display_current_entry_idx - 1)
+    vim.api.nvim_win_set_cursor(self.windows.padding, { self.display_current_entry_idx, 0 })
+end
+
 function State:create_mappings()
+    actions = require("file_browser.actions"):new(self)
+
     -- #############
     -- ### CLOSE ###
     -- #############
@@ -247,33 +282,36 @@ function State:create_mappings()
     -- ### MARKING ###
     -- ###############
     map("i", "<C-s>", function()
-        self.display_entries[self.display_current_entry_nr].marked = not self.display_entries[self.display_current_entry_nr].marked
-        self:show_entries()
+        self:mark_current()
+    end, self.buffers.prompt)
+
+    map("i", "<C-g>", function()
+        self:get_selected()
     end, self.buffers.prompt)
 
     -- ########################
     -- ### RESULTS HANDLING ###
     -- ########################
     map({ "n", "i" }, "<C-n>", function()
-        self:jump(1)
+        actions:jump(1)
     end, self.buffers.prompt)
     map({ "n", "i" }, "<C-p>", function()
-        self:jump(-1)
+        actions:jump(-1)
     end, { self.buffers.prompt, self.buffers.results })
     map({ "n" }, "j", function()
-        self:jump(1)
+        actions:jump(1)
     end, { self.buffers.prompt, self.buffers.results })
     map({ "n" }, "k", function()
-        self:jump(-1)
+        actions:jump(-1)
     end, { self.buffers.prompt, self.buffers.results })
     map({ "n", "i" }, "<CR>", function()
-        self:default_action()
-    end, { self.buffers.prompt, self.buffers.results })
-    map({ "n", "i" }, "<C-v>", function()
-        self:open_vsplit()
+        actions:default()
     end, { self.buffers.prompt, self.buffers.results })
     map({ "n", "i" }, "<S-CR>", function()
-        self:default_action(true)
+        actions:default(true)
+    end, { self.buffers.prompt, self.buffers.results })
+    map({ "n", "i" }, "<C-v>", function()
+        actions:open_vsplit()
     end, { self.buffers.prompt, self.buffers.results })
 
     -- ##############
@@ -281,7 +319,7 @@ function State:create_mappings()
     -- ##############
     map({ "i", "n" }, "<BS>", function()
         if self:get_prompt() == "" then
-            self:goto_parent(is_insert())
+            actions:goto_parent(is_insert())
         else
             -- mode = 'n' means "ignore remappings, behave regularly"
             vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<BS>", true, false, true), "n", false)
@@ -289,7 +327,7 @@ function State:create_mappings()
     end, { self.buffers.prompt })
 
     map({ "i", "n" }, "<BS>", function()
-        self:goto_parent(is_insert())
+        actions:goto_parent(is_insert())
     end, { self.buffers.results })
 
     map({ "n" }, "<Esc>", function()
@@ -451,19 +489,22 @@ function State:show_entries(should_jump)
         -- row-1, row so that we effectively overwrite empty line
         vim.api.nvim_buf_set_lines(self.buffers.results, row - 1, row, false, { entry.text })
         vim.api.nvim_buf_set_lines(self.buffers.results_icon, row - 1, row, false, { entry.icon.text })
-        if entry.marked then
-            vim.api.nvim_buf_set_lines(self.buffers.padding, row - 1, row, false, { self.marked_icons.selected.text })
-            vim.api.nvim_buf_add_highlight(self.buffers.padding, 0, self.marked_icons.selected.hl, row - 1, 0, -1)
-        else
-            vim.api.nvim_buf_set_lines(self.buffers.padding, row - 1, row, false, { "  " })
-        end
-        vim.api.nvim_buf_add_highlight(self.buffers.results_icon, 0, entry.icon.hl, row - 1, 0, -1)
-        vim.api.nvim_buf_add_highlight(self.buffers.results, 0, entry.icon.hl, row - 1, 0, -1)
+        vim.api.nvim_buf_set_lines(self.buffers.padding, row - 1, row, false, { "  " })
+        set_hl(self.buffers.results_icon, entry.icon.hl, row - 1)
+        set_hl(self.buffers.results, entry.icon.hl, row - 1)
     end
 
-    -- if self.display_current_entry == -1 then
-    self:jump(1, true) -- reset current entry to first, usually you want the first result when you search stuff
-    -- end
+    vim.iter(marked):each(function(e)
+        local idx = self:index_display(e.text)
+        if idx ~= -1 then
+            vim.api.nvim_buf_set_lines(self.buffers.padding, idx - 1, idx, false, { self.marked_icons.selected.text })
+            set_hl(self.buffers.padding, self.marked_icons.selected.hl, idx - 1)
+        end
+    end)
+
+    if should_jump == nil or should_jump then
+        actions:jump(1, true) -- reset current entry to first, usually you want the first result when you search stuff
+    end
 end
 
 --- Goes to a given directory, populating results and updating the state.
@@ -575,21 +616,18 @@ function State:windo(func)
     end
 end
 
----Go to parent directory
----@param start_insert boolean?
-function State:goto_parent(start_insert)
-    local _, seps = self.cwd:gsub("/", "")
-    if seps > 0 then
-        local cwd = select(1, self.cwd:gsub("(.*)/.+$", "%1/"))
-        self:cd(cwd, start_insert)
-    end
-end
-
 --- Default action. Opens if file, cd if directory
 ---@param cd boolean?: should also change directory
 function State:default_action(cd)
-    local new_cwd = self.cwd .. self.display_entries[self.display_current_entry_nr].text
-    if self.display_entries[self.display_current_entry_nr].is_dir then
+    local entry = self.display_entries[self.display_current_entry_idx]
+    local new_cwd
+    if entry == nil then
+        new_cwd = table.concat({ self.cwd, self:get_prompt() })
+    else
+        new_cwd = table.concat({ self.cwd, entry.text })
+    end
+
+    if entry and entry.is_dir then
         if cd then
             vim.fn.chdir(new_cwd)
         end
@@ -615,19 +653,6 @@ function State:close()
     self:windo(function(_, value)
         vim.api.nvim_win_close(value, true)
     end)
-end
-
---- Opens in vsplit if current entry is file
-function State:open_vsplit()
-    local new_cwd = self.cwd .. self.display_entries[self.display_current_entry_nr].text
-    if self.display_entries[self.display_current_entry_nr].is_dir then
-        return
-    end
-
-    utils.normal_mode()
-    self:close()
-
-    vim.cmd.vsplit(new_cwd)
 end
 
 --- Empties the list of entries
