@@ -25,6 +25,8 @@ local is_insert = function()
     return vim.fn.mode() == "i"
 end
 
+--- Default action. If dir, sets state.cwd to it, if file, opens it
+---@param cd boolean?: should cd to directory. Defaults to false
 function Actions:default(cd)
     local entry = self.state.display_entries[self.state.display_current_entry_idx]
     local new_cwd
@@ -43,16 +45,58 @@ function Actions:default(cd)
         -- reset prompt
         vim.api.nvim_buf_set_lines(self.state.buffers.prompt, 0, -1, false, {})
     else
-        self.state:windo(function(_, value)
-            vim.api.nvim_win_close(value, true)
-        end)
+        self.state:close()
 
-        utils.normal_mode()
         if cd then
             vim.fn.chdir(self.state.cwd)
         end
         vim.cmd.edit(new_cwd)
     end
+end
+
+--- Sets nvim CWD to the one of this plugin
+function Actions:cd()
+    vim.cmd.cd(self.state.cwd)
+end
+
+--- Deletes a file/folder.
+---@param force boolean?: Whether the command should be forced. Defaults to false
+---@param ask_confirmation boolean?: Whether the command should ask for confirmation before deleting. Defaults to true
+function Actions:delete(force, ask_confirmation)
+    local entry = table.concat({ self.state.cwd, self.state:get_current_entry().text })
+    local cmd = string.format("rm -r%s", force and "f" or "")
+
+    if ask_confirmation == false or vim.fn.input("Confirm? [Y/n] ") ~= "n" then
+        os.execute(table.concat({ cmd, entry }, " "))
+    end
+
+    self.state:cd(self.state.cwd, is_insert())
+end
+
+--- Creates file/directory.
+function Actions:create()
+    local input = vim.fn.input("Create: ")
+    local base = input:match("(.+)/.*") or ""
+    local file = input:match("[^/]+$")
+    local first = table.concat({ self.state.cwd, input:match("^[^/]+") })
+
+    if base ~= "" then
+        base = table.concat({ self.state.cwd, base })
+        if os.execute(string.format("[ ! -f %s ] && mkdir -p %s || exit 1", first, base)) ~= 0 then
+            vim.notify("Could note create directories.", vim.log.levels.WARN, {})
+            return
+        end
+    end
+
+    if file ~= nil then
+        file = table.concat({ self.state.cwd, input })
+        if os.execute(string.format("[ ! -f %s ] && touch %s", file, file)) ~= 0 then
+            vim.notify("Could note create file.", vim.log.levels.WARN, {})
+            return
+        end
+    end
+
+    self.state:cd(self.state.cwd, is_insert())
 end
 
 ---Go to parent directory
@@ -105,7 +149,11 @@ function Actions:open_split(vertical)
     utils.normal_mode()
     self.state:close()
 
-    vim.cmd.vsplit(new_cwd)
+    if vertical == nil or vertical then
+        vim.cmd.vsplit(new_cwd)
+    else
+        vim.cmd.split(new_cwd)
+    end
 end
 
 Actions.__index = Actions

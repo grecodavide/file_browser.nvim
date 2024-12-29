@@ -6,10 +6,12 @@
 ---@field width_scale number: Defaults to 0.92
 ---@field height_scale number: Defaults to 0.92
 ---@field show_hidden boolean: Defaults to true
----@field mark_icons file_browser.MarkIcons: Icons used for marks
+---@field show_links boolean: Defaults to true
+---@field marked_icons file_browser.MarkIcons: Icons used for marks
 ---@field debounce number: debounce for preview (in ms)
 ---@field preview_width number: percentage of floating win to be used for preview
 ---@field max_prompt_size number: max size (percentage) of prompt prefix
+---@field use_treesitter boolean: Defaults to true
 
 ---@class file_browser.Icon
 ---@field text string: The icon text

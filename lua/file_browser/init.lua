@@ -20,8 +20,11 @@ M.opts = {
     max_prompt_size = 0.6,
 
     show_hidden = true,
+    show_links = true,
 
-    mark_icons = {
+    use_treesitter = true,
+
+    marked_icons = {
         selected = {
             text = "█",
             hl = "MiniIconsYellow",
@@ -43,6 +46,8 @@ M.open = function(cwd)
 
     if cwd == nil or cwd == "" then
         cwd = vim.fn.getcwd()
+    else
+        cwd = vim.fn.expand(cwd)
     end
 
     if cwd:sub(#cwd) ~= "/" then
@@ -57,16 +62,7 @@ end
 M.setup = function(opts)
     M.opts = vim.tbl_deep_extend("force", M.opts, opts or {})
 
-    state = require("file_browser.state"):new(
-        M.opts.debounce,
-        M.opts.display_symlinks,
-        M.opts.show_hidden,
-        M.opts.width_scale,
-        M.opts.height_scale,
-        M.opts.preview_width,
-        M.opts.max_prompt_size,
-        M.opts.mark_icons
-    )
+    state = require("file_browser.state"):new(M.opts)
 
     utils.save_options(state.options_to_restore)
 

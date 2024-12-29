@@ -1,10 +1,13 @@
--- Things to do:
+-- TODO:
 -- - add option to determine percentage of prompt before trimming it: for example we can
 --   add option to opts defining the percentage, and on update_prompt do a check: if len > max_len ( = winconf.prompt.width * percentage)
 --   then print only the last max_len chars
+-- - Add opt use_treesitter and, if set to true, use treesitter hl
 
 ---@type file_browser.Entry[]
 local marked = {}
+
+local last_win
 
 --- Sets hl in given buffer
 ---@param buffer number: The buffer id
@@ -21,7 +24,7 @@ end
 ---@param type "f"|"d"|"l"|"a": The type to match.
 ---@param show_hidden boolean: Whether to show hidden files
 ---@return string[]: The output for this command
-local function get_cmd(path, type, show_hidden)
+local function get_from_cmd(path, type, show_hidden)
     if show_hidden then
         if type == "a" then
             return vim.split(io.popen(string.format("cd '%s' && fd --hidden --exact-depth=1", path), "r"):read("*a"), "\n")
@@ -42,6 +45,7 @@ local link_icon_text = "󱅷"
 local link_icon_hl = "MiniIconsBlue"
 
 local utils = require("file_browser.utils")
+local defer = utils.defer
 
 ---Transforms text to icon and text couple
 ---@param entry string: the text gotten from a cmd
@@ -77,44 +81,63 @@ local is_insert = function()
 end
 
 local create_entries = function(cwd, display_links, show_hidden, tbl)
-    local directories = get_cmd(cwd, "d", show_hidden)
-    for _, dir in pairs(directories) do
-        if dir and dir ~= "" then
-            table.insert(tbl, {
-                icon = {
-                    text = dir_icon_text,
-                    hl = dir_hl,
-                },
-                text = dir,
-                is_dir = true,
-                marked = false,
-            })
-        end
-    end
-
-    if display_links then
-        local links = get_cmd(cwd, "l", show_hidden)
-        for _, link in pairs(links) do
-            if link and link ~= "" then
+    local results = get_from_cmd(cwd, "a", show_hidden)
+    for _, res in ipairs(results) do
+        if res and res ~= "" then -- it's a valid entry
+            if res:sub(#res) == "/" then -- it's a directory
                 table.insert(tbl, {
                     icon = {
-                        text = link_icon_text,
-                        hl = link_icon_hl,
+                        text = dir_icon_text,
+                        hl = dir_hl,
                     },
-                    text = link,
-                    is_dir = false,
+                    text = res,
+                    is_dir = true,
                     marked = false,
                 })
+            else
+                table.insert(tbl, transform(res))
             end
         end
     end
 
-    local files = get_cmd(cwd, "f", show_hidden)
-    for _, file in pairs(files) do
-        if file and file ~= "" then
-            table.insert(tbl, transform(file))
-        end
-    end
+    -- local directories = get_from_cmd(cwd, "d", show_hidden)
+    -- for _, dir in pairs(directories) do
+    --     if dir and dir ~= "" then
+    --         table.insert(tbl, {
+    --             icon = {
+    --                 text = dir_icon_text,
+    --                 hl = dir_hl,
+    --             },
+    --             text = dir,
+    --             is_dir = true,
+    --             marked = false,
+    --         })
+    --     end
+    -- end
+    --
+    -- if display_links then
+    --     local links = get_from_cmd(cwd, "l", show_hidden)
+    --     for _, link in pairs(links) do
+    --         if link and link ~= "" then
+    --             table.insert(tbl, {
+    --                 icon = {
+    --                     text = link_icon_text,
+    --                     hl = link_icon_hl,
+    --                 },
+    --                 text = link,
+    --                 is_dir = false,
+    --                 marked = false,
+    --             })
+    --         end
+    --     end
+    -- end
+    --
+    -- local files = get_from_cmd(cwd, "f", show_hidden)
+    -- for _, file in pairs(files) do
+    --     if file and file ~= "" then
+    --         table.insert(tbl, transform(file))
+    --     end
+    -- end
 end
 
 -- TODO: state should also contain a "marked" value, containing all file
@@ -143,21 +166,23 @@ end
 ---@field marked {selected: file_browser.Entry[], cut: file_browser.Entry[]}
 ---@field debounce number
 ---@field display_links boolean
+---@field use_treesitter boolean: preview with treesitter/regular syntax
 local State = {}
 
 local actions
 
 ---Returns a default state
+---@param opts file_browser.Config
 ---@return file_browser.State
-function State:new(debounce, display_links, show_hidden, width_scale, height_scale, preview_width, max_prompt_size, marked_icons)
-    marked_icons = {
+function State:new(opts)
+    local marked_icons = {
         selected = {
-            text = string.format(" %s", marked_icons.selected.text),
-            hl = marked_icons.selected.hl,
+            text = string.format(" %s", opts.marked_icons.selected.text),
+            hl = opts.marked_icons.selected.hl,
         },
         cut = {
-            text = string.format(" %s", marked_icons.selected.text),
-            hl = marked_icons.selected.hl,
+            text = string.format(" %s", opts.marked_icons.selected.text),
+            hl = opts.marked_icons.selected.hl,
         },
     }
 
@@ -200,22 +225,27 @@ function State:new(debounce, display_links, show_hidden, width_scale, height_sca
         display_current_entry = -1,
         display_entries_nr = 0,
 
-        width_scale = width_scale,
-        height_scale = height_scale,
-        preview_width = preview_width,
-        max_prompt_size = max_prompt_size,
+        width_scale = opts.width_scale,
+        height_scale = opts.height_scale,
+        preview_width = opts.preview_width,
+        max_prompt_size = opts.max_prompt_size,
 
         marked_icons = marked_icons,
 
-        show_hidden = show_hidden,
+        show_hidden = opts.show_hidden,
 
-        debounce = debounce,
-        display_links = display_links,
+        debounce = opts.debounce,
+        display_links = opts.show_links,
+        use_treesitter = opts.use_treesitter,
     }, self)
 end
 
 function State:get_prompt()
     return vim.api.nvim_buf_get_lines(self.buffers.prompt, 0, -1, false)[1]
+end
+
+function State:get_current_entry()
+    return self.display_entries[self.display_current_entry_idx]
 end
 
 function State:search_marked()
@@ -307,11 +337,18 @@ function State:create_mappings()
     map({ "n", "i" }, "<CR>", function()
         actions:default()
     end, { self.buffers.prompt, self.buffers.results })
-    map({ "n", "i" }, "<S-CR>", function()
+    map({ "n", "i" }, "<C-CR>", function()
         actions:default(true)
     end, { self.buffers.prompt, self.buffers.results })
     map({ "n", "i" }, "<C-v>", function()
-        actions:open_vsplit()
+        actions:open_split()
+    end, { self.buffers.prompt, self.buffers.results })
+
+    map({ "i", "n" }, "<C-e>", function()
+        actions:create()
+    end, { self.buffers.prompt, self.buffers.results })
+    map({ "i", "n" }, "<C-x>", function()
+        actions:delete(true)
     end, { self.buffers.prompt, self.buffers.results })
 
     -- ##############
@@ -396,6 +433,8 @@ end
 
 --- Saves options, and then IF the windows are not valid, then create them
 function State:create_windows()
+    last_win = vim.api.nvim_get_current_win()
+
     self:save_options()
 
     self.win_configs, self.results_width = utils.get_win_configs(self.width_scale, self.height_scale, self.preview_width)
@@ -624,7 +663,8 @@ function State:update_prompt(cwd, prefix_hl)
     self:set_cwd(cwd)
 end
 
----Populates the state with the entries for the current directory
+--- Populates the state with the entries for the current directory. Note that this does not
+--- display anything!
 function State:get_entries()
     create_entries(self.cwd, self.display_links, self.show_hidden, self.entries)
 
@@ -635,6 +675,7 @@ function State:get_entries()
     self.display_entries_nr = self.entries_nr
 end
 
+---@private
 --- Calls given function on every window in the state
 ---@param func fun(string, number):any
 function State:windo(func)
