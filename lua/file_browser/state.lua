@@ -541,36 +541,63 @@ function State:get_selected_cut()
         :totable()
 end
 
+---@type function|nil: it will be nil if no function was called in the last `self.debounce` ms, a function to cancel last invocation otherwise
+local updating_preview = nil
+
 function State:update_preview()
-    local curr = self.display_entries[self.display_current_entry_idx]
-    if curr == nil then
-        return
+    if updating_preview ~= nil then
+        updating_preview() -- cancel last invocation
     end
-    local fullpath = self.cwd .. curr.text
-    if curr.is_dir then
-        local tmp = {}
-        create_entries(fullpath, self.display_links, self.show_hidden, tmp)
 
-        vim.api.nvim_buf_set_lines(self.buffers.preview, 0, -1, false, {})
-        local entry
-        for row = 1, #tmp do
-            entry = tmp[row]
-            -- row-1, row so that we effectively overwrite empty line
-            vim.api.nvim_buf_set_lines(self.buffers.preview, row - 1, row, false, { string.format("%s  %s", entry.icon.text, entry.text) })
-            vim.api.nvim_buf_add_highlight(self.buffers.preview, 0, entry.icon.hl, row - 1, 0, -1)
+    updating_preview = defer(function() -- actual preview updating
+        if vim.api.nvim_buf_is_valid(self.buffers.preview) then
+            local curr = self.display_entries[self.display_current_entry_idx]
+            if curr == nil then
+                return
+            end
+            local fullpath = self.cwd .. curr.text
+            if curr.is_dir then
+                local tmp = {}
+                create_entries(fullpath, self.display_links, self.show_hidden, tmp)
+
+                vim.api.nvim_buf_set_lines(self.buffers.preview, 0, -1, false, {})
+                local entry
+                for row = 1, #tmp do
+                    entry = tmp[row]
+                    -- row-1, row so that we effectively overwrite empty line
+                    vim.api.nvim_buf_set_lines(self.buffers.preview, row - 1, row, false, { string.format("%s  %s", entry.icon.text, entry.text) })
+                    vim.api.nvim_buf_add_highlight(self.buffers.preview, 0, entry.icon.hl, row - 1, 0, -1)
+                end
+
+                vim.bo[self.buffers.preview].filetype = ""
+            else
+                vim.api.nvim_buf_set_lines(self.buffers.preview, 0, -1, false, {})
+
+                local ok, lines = pcall(vim.fn.readfile, fullpath)
+                if not ok then
+                    lines = {}
+                end
+
+                ok = pcall(vim.api.nvim_buf_set_lines, self.buffers.preview, 0, -1, false, lines)
+                if not ok then
+                    vim.api.nvim_buf_set_lines(self.buffers.preview, 0, -1, false, { "could not retreive preview" })
+                end
+
+                -- get ft without **setting** it. This prevents things from attaching, like lsp
+                local ft = vim.filetype.match({ filename = curr.text }) or ""
+
+                local highlighted = false
+                if self.use_treesitter then
+                    highlighted = pcall(vim.treesitter.start, self.buffers.preview, ft)
+                end
+
+                -- if either `use_treesitter = false` or no parser was found try to do with syntax
+                if not highlighted then
+                    vim.cmd.set("syntax=" .. ft)
+                end
+            end
         end
-
-        vim.bo[self.buffers.preview].filetype = ""
-    else
-        vim.api.nvim_buf_set_lines(self.buffers.preview, 0, -1, false, {})
-        vim.api.nvim_set_current_win(self.windows.preview)
-        vim.cmd(string.format("silent read %s", fullpath))
-        vim.api.nvim_buf_set_lines(self.buffers.preview, 0, 1, false, {}) -- remove first line, as read on empty buf will always leave the first line empty
-        local ft = vim.filetype.match({ filename = curr.text }) or ""
-        vim.cmd.set("syntax=" .. ft)
-        -- vim.bo[self.buffers.preview].filetype = vim.filetype.match({ filename = curr.text }) or ""
-        vim.api.nvim_set_current_win(self.windows.prompt)
-    end
+    end, self.debounce)
 end
 
 ---Updates the prompt, prompt prefix and cwd
@@ -616,43 +643,13 @@ function State:windo(func)
     end
 end
 
---- Default action. Opens if file, cd if directory
----@param cd boolean?: should also change directory
-function State:default_action(cd)
-    local entry = self.display_entries[self.display_current_entry_idx]
-    local new_cwd
-    if entry == nil then
-        new_cwd = table.concat({ self.cwd, self:get_prompt() })
-    else
-        new_cwd = table.concat({ self.cwd, entry.text })
-    end
-
-    if entry and entry.is_dir then
-        if cd then
-            vim.fn.chdir(new_cwd)
-        end
-        self:cd(new_cwd, is_insert())
-
-        -- reset prompt
-        vim.api.nvim_buf_set_lines(self.buffers.prompt, 0, -1, false, {})
-    else
-        self:windo(function(_, value)
-            vim.api.nvim_win_close(value, true)
-        end)
-
-        utils.normal_mode()
-        if cd then
-            vim.fn.chdir(self.cwd)
-        end
-        vim.cmd.edit(new_cwd)
-    end
-end
-
 --- Close all windows
 function State:close()
+    utils.normal_mode()
     self:windo(function(_, value)
         vim.api.nvim_win_close(value, true)
     end)
+    vim.api.nvim_set_current_win(last_win)
 end
 
 --- Empties the list of entries

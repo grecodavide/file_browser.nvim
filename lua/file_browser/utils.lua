@@ -211,4 +211,25 @@ M.default_state = function()
     }
 end
 
+--- Defers the call of a function, returning a handle to cancel that invocation
+---@param func function: the function o be deferred
+---@param delay number: ms to wait before invoking the function
+---@return function: handle to cancel last invocation
+M.defer = function(func, delay)
+    local timer = vim.uv.new_timer()
+    -- Start the timer
+    timer:start(delay, 0, function()
+        vim.schedule(func) -- Schedule the function on Neovim's main thread
+        timer:stop()
+        timer:close()
+    end)
+
+    return function()
+        if not timer:is_closing() then
+            timer:stop()
+            timer:close()
+        end
+    end
+end
+
 return M

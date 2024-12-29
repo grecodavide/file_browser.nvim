@@ -68,30 +68,6 @@ function Actions:goto_parent(start_insert)
     end
 end
 
--- init as nil: never called
-local update_preview = nil
-
--- this function does handles the debounce: basically
-local function defer_with_cancel(func, delay)
-    local timer = vim.loop.new_timer()
-
-    -- Start the timer
-    timer:start(delay, 0, function()
-        vim.schedule(func) -- Schedule the function on Neovim's main thread
-        timer:stop()
-        timer:close()
-    end)
-
-    -- Return a cancel function: if we call the return value of this function,
-    -- we will stop the execution of the given function (as long as the time did not elapse)
-    return function()
-        if not timer:is_closing() then
-            timer:stop()
-            timer:close()
-        end
-    end
-end
-
 ---Jumps to a given entry in the list, by specifying an index
 ---@param index number: the index to jump to (relative or absolute)
 ---@param absolute boolean?: Whether the given index is absolute. Defaults to false
@@ -115,23 +91,12 @@ function Actions:jump(index, absolute)
     vim.api.nvim_win_set_cursor(self.state.windows.padding, { self.state.display_current_entry_idx, 0 })
     vim.api.nvim_win_set_cursor(self.state.windows.results_icon, { self.state.display_current_entry_idx, 0 })
 
-    -- if update_preview is not nil we already called the function in the last `self.state.debounce` ms!
-    -- so we need to cancel that call
-    if update_preview ~= nil then
-        update_preview()
-    end
-
-    -- Defer the update of preview window
-    update_preview = defer_with_cancel(function()
-        if vim.api.nvim_buf_is_valid(self.state.buffers.preview) then
-            self.state:update_preview()
-        end
-        update_preview = nil
-    end, self.state.debounce)
+    self.state:update_preview()
 end
 
 --- Opens in vsplit if current entry is file
-function Actions:open_vsplit()
+---@param vertical boolean?: is it vsplit? default is true
+function Actions:open_split(vertical)
     local new_cwd = self.state.cwd .. self.state.display_entries[self.state.display_current_entry_idx].text
     if self.state.display_entries[self.state.display_current_entry_idx].is_dir then
         return
