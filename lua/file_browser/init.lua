@@ -18,72 +18,96 @@ local default_mappings = {
     },
     {
         mode = { "n", "i" },
-        lhs = "<c-d>",
+        region = { "results", "prompt" },
+        lhs = "<C-s>",
+        callback = "mark_current",
+    },
+    {
+        mode = "i",
+        region = { "results", "prompt" },
+        lhs = "<C-.>",
+        callback = "cd",
+    },
+    {
+        mode = "n",
+        region = "prompt",
+        lhs = ".",
+        callback = "cd",
+    },
+    {
+        mode = "n",
+        region = { "prompt" },
+        lhs = "r",
+        callback = "rename",
+    },
+    {
+        mode = { "n", "i" },
+        lhs = "<C-d>",
         region = { "prompt", "results" },
         callback = "scroll_preview_up",
     },
     {
         mode = { "n", "i" },
-        lhs = "<c-u>",
+        lhs = "<C-u>",
         region = { "prompt", "results" },
         callback = "scroll_preview_down",
     },
     {
         mode = { "n", "i" },
-        lhs = "<c-n>",
+        lhs = "<C-n>",
         region = { "prompt", "results" },
-        callback = "jump",
+        callback = "jump_to",
         args = { 1 },
     },
     {
         mode = "n",
         lhs = "k",
         region = { "prompt", "results" }, -- also results so that it wraps
-        callback = "jump",
+        callback = "jump_to",
         args = { -1 },
     },
     {
         mode = { "n", "i" },
-        lhs = "<c-p>",
+        lhs = "<C-p>",
         region = { "prompt", "results" },
-        callback = "jump",
+        callback = "jump_to",
         args = { -1 },
     },
     {
         mode = "n",
         lhs = "j",
         region = { "prompt", "results" },
-        callback = "jump",
+        callback = "jump_to",
         args = { 1 },
     },
     {
         mode = { "n", "i" },
-        lhs = "<cr>",
+        lhs = "<CR>",
         region = { "prompt", "results" },
         callback = "default",
     },
     {
         mode = { "n", "i" },
-        lhs = "<c-cr>",
+        lhs = "<C-CR>",
         region = { "prompt", "results" },
         callback = "default",
         args = { true },
     },
     {
         mode = { "n", "i" },
-        lhs = "<c-v>",
+        lhs = "<C-v>",
         region = { "prompt", "results" },
         callback = "open_split",
     },
     {
         mode = { "n", "i" },
-        lhs = "<c-e>",
+        lhs = "<C-e>",
         region = { "prompt", "results" },
         callback = "create",
     },
     {
         mode = { "n", "i" },
-        lhs = "<c-x>",
+        lhs = "<C-x>",
         region = { "prompt", "results" },
         callback = "delete",
         args = { true },
@@ -114,7 +138,7 @@ local default_mappings = {
     -- ##############
     {
         mode = { "i", "n" },
-        lhs = "<bs>",
+        lhs = "<BS>",
         region = { "prompt" },
         callback = "goto_parent_or_delete",
     },
@@ -159,12 +183,15 @@ local state
 ---Opens the main window
 ---@param cwd string?: The path to search into. Default to cwd
 M.open = function(cwd)
-    state:focus()
+    package.loaded["file_browser.state"] = nil
+    package.loaded["file_browser.actions"] = nil
+
+    state = require("file_browser.state"):new(M.opts)
+    utils.save_options(state.options_to_restore)
 
     if cwd == nil or cwd == "" then
         cwd = vim.fn.getcwd()
     else
-        -- expand to full [p]ath, and remove [t]ail (2x)
         cwd = vim.fn.expand(cwd)
     end
 
@@ -172,6 +199,7 @@ M.open = function(cwd)
         cwd = cwd .. "/"
     end
 
+    state:focus()
     state:cd(cwd, M.opts.start_insert)
 end
 
@@ -187,10 +215,6 @@ M.setup = function(opts)
     if M.opts.use_default_mappings then
         M.opts.mappings = vim.tbl_extend("keep", M.opts.mappings, default_mappings)
     end
-
-    state = require("file_browser.state"):new(M.opts)
-
-    utils.save_options(state.options_to_restore)
 
     set_up = true
 end

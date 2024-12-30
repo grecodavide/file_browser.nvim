@@ -4,20 +4,8 @@
 --   then print only the last max_len chars
 -- - Add opt use_treesitter and, if set to true, use treesitter hl
 
----@type file_browser.Entry[]
-local marked = {}
-
 local last_win
-
---- Sets hl in given buffer
----@param buffer number: The buffer id
----@param hl string: The hl name
----@param line number: line
----@param col_start number?: First column (0 indexed). Defaults to 0
----@param col_end number?: Last column (-1 for last). Defaults to -1
-local set_hl = function(buffer, hl, line, col_start, col_end)
-    vim.api.nvim_buf_add_highlight(buffer, 0, hl, line, col_start or 0, col_end or -1)
-end
+local set_hl = require("file_browser.utils").set_hl
 
 --- Create cmd to get all entries matching a certain type in the given directory, and get its output
 ---@param path string: The path to search into
@@ -57,21 +45,6 @@ local function transform(entry)
         is_dir = false,
         marked = false,
     }
-end
-
---- Creates a mapping for a specific buffer
----@param mode string|string[]: The mode(s) for the mapping
----@param lhs string: The actual mapping
----@param callback function|string: The callback for the mapping. Can also be a string like the regular mappings
----@param buffer number|number[]: The buffer for which the mapping must exist
-local map = function(mode, lhs, callback, buffer)
-    if type(buffer) == "table" then
-        for _, buf in pairs(buffer) do
-            vim.keymap.set(mode, lhs, callback, { buffer = buf, silent = true, noremap = true })
-        end
-    else
-        vim.keymap.set(mode, lhs, callback, { buffer = buffer, silent = true, noremap = true })
-    end
 end
 
 local create_entries = function(cwd, show_hidden, group_dirs, tbl)
@@ -128,9 +101,9 @@ end
 ---@field use_treesitter boolean: preview with treesitter/regular syntax
 ---@field mappings file_browser.Mapping[]: List of mappings to create
 ---@field group_dirs boolean: Whether the directories should be grouped at the top
+---@field marked file_browser.Entry[]: list of marked items
+---@field actions file_browser.Actions
 local State = {}
-
-local actions
 
 ---Returns a default state, also binding `actions` to it
 ---@param opts file_browser.Config
@@ -201,13 +174,15 @@ function State:new(opts)
             display_links = opts.show_links,
             use_treesitter = opts.use_treesitter,
 
-            mappings = opts.mappings,
+            mappings = vim.deepcopy(opts.mappings),
             group_dirs = opts.group_dirs,
+
+            marked = {},
         },
         self
     )
 
-    actions = require("file_browser.actions"):new(tbl)
+    tbl.actions = require("file_browser.actions"):new(tbl)
     return tbl
 end
 
@@ -219,13 +194,13 @@ function State:parse_mapping(mapping)
     local callback
 
     if type(mapping.callback) == "string" then
-        callback = actions[mapping.callback]
+        callback = self.actions[mapping.callback]
         if callback == nil then
             local msg = string.format("Error trying to set up mapping %s. Invalid action: %s", mapping.lhs, mapping.callback)
             vim.notify(msg, vim.log.levels.ERROR, {})
             return
         end
-        table.insert(args, 1, actions)
+        table.insert(args, 1, self.actions)
     else
         callback = mapping.callback
     end
@@ -249,10 +224,14 @@ function State:parse_mapping(mapping)
         end)
         :totable()
 
+    -- if type(mapping.callback) == "string" and mapping.callback == "jump" then
+    --     vim.print(args)
+    -- end
+
     for _, buf in ipairs(regions) do
         vim.keymap.set(mapping.mode, mapping.lhs, function()
             callback(unpack(args))
-        end, { buffer = buf })
+        end, { buffer = buf, remap = true })
     end
 end
 
@@ -264,54 +243,14 @@ function State:get_current_entry()
     return self.display_entries[self.display_current_entry_idx]
 end
 
-function State:search_marked()
-    for i, k in ipairs(marked) do
-        if k.text == self.display_entries[self.display_current_entry_idx].text then
-            return i
-        end
-    end
-
-    return -1
-end
-
-function State:mark_current()
-    local idx = self:search_marked()
-    if idx == -1 then
-        table.insert(marked, self.display_entries[self.display_current_entry_idx])
-    else
-        table.remove(marked, idx)
-    end
-
-    vim.api.nvim_buf_set_lines(
-        self.buffers.padding,
-        self.display_current_entry_idx - 1, -- 0 indexed
-        self.display_current_entry_idx - 1,
-        false,
-        { " " .. self.marked_icons.selected.text }
-    )
-    set_hl(self.buffers.padding, self.marked_icons.selected.hl, self.display_current_entry_idx - 1)
-    vim.api.nvim_win_set_cursor(self.windows.padding, { self.display_current_entry_idx, 0 })
-end
-
 function State:create_mappings()
     vim.iter(self.mappings):each(function(mapping)
         self:parse_mapping(mapping)
     end)
-
-    -- ###############
-    -- ### MARKING ###
-    -- ###############
-    map("i", "<C-s>", function()
-        self:mark_current()
-    end, self.buffers.prompt)
-
-    map("i", "<C-g>", function()
-        self:get_selected()
-    end, self.buffers.prompt)
 end
 
 function State:get_actions()
-    return actions
+    return self.actions
 end
 
 function State:save_options()
@@ -401,6 +340,7 @@ function State:create_windows()
 
     vim.bo[self.buffers.prompt].filetype = "prompt"
     self:create_autocmds()
+
     self:create_mappings()
 end
 
@@ -475,7 +415,7 @@ function State:show_entries(should_jump)
         set_hl(self.buffers.results, entry.icon.hl, row - 1)
     end
 
-    vim.iter(marked):each(function(e)
+    vim.iter(self.marked):each(function(e)
         local idx = self:index_display(e.text)
         if idx ~= -1 then
             vim.api.nvim_buf_set_lines(self.buffers.padding, idx - 1, idx, false, { self.marked_icons.selected.text })
@@ -484,7 +424,7 @@ function State:show_entries(should_jump)
     end)
 
     if should_jump == nil or should_jump then
-        actions:jump(1, true) -- reset current entry to first, usually you want the first result when you search stuff
+        self.actions:jump_to(1, true) -- reset current entry to first, usually you want the first result when you search stuff
     end
 end
 
@@ -508,10 +448,8 @@ function State:focus()
     if not vim.api.nvim_win_is_valid(self.windows.prompt) then
         self:create_windows()
     end
+
     vim.api.nvim_set_current_win(self.windows.prompt)
-end
-function State:get_selected()
-    vim.print(marked)
 end
 
 function State:get_selected_cut()

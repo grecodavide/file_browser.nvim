@@ -66,6 +66,70 @@ end
 --- Sets nvim CWD to the one of this plugin
 function Actions:cd()
     vim.cmd.cd(self.state.cwd)
+    print("Set CWD to " .. self.state.cwd)
+end
+
+--- Searches the current entry among the marked ones, returning its index if found, -1 otherwise
+---@return number: The searched index, or -1 if not found
+function Actions:search_marked()
+    for i, k in ipairs(self.state.marked) do
+        if k.text == self.state:get_current_entry().text then
+            return i
+        end
+    end
+
+    return -1
+end
+
+function Actions:rename()
+    local entry = self.state:get_current_entry()
+    local old_name = entry.text
+    if entry.is_dir then
+        old_name = string.sub(old_name, 1, #old_name - 1)
+    end
+    local new_name = vim.fn.input("New name: ")
+    if new_name == nil or new_name == "" then
+        return
+    end
+
+    local cmd = string.format("cd %s && [ ! -f %s ] && [ ! -d %s ]", self.state.cwd, new_name, new_name)
+
+    local exists = os.execute(cmd) ~= 0
+
+    if exists then
+        vim.notify("Cannot rename: file/dir with that name already exists", vim.log.levels.ERROR, {})
+        return
+    end
+
+    if os.execute(string.format("cd %s && mv %s %s", self.state.cwd, old_name, new_name)) ~= 0 then
+        vim.notify("Error while trying to rename.", vim.log.levels.ERROR, {})
+        return
+    end
+
+    self.state:cd(self.state.cwd, is_insert())
+end
+
+function Actions:mark_current()
+    local idx = self:search_marked()
+    local text
+    if idx == -1 then
+        table.insert(self.state.marked, self.state:get_current_entry())
+        text = { table.concat({ self.state.marked_icons.selected.text, " " }) }
+    else
+        table.remove(self.state.marked, idx)
+        text = { "" } -- empty line, not nothing: it would delete the line and so move all the other marks
+    end
+
+    vim.api.nvim_buf_set_lines(
+        self.state.buffers.padding,
+        self.state.display_current_entry_idx - 1, -- 0 indexed
+        self.state.display_current_entry_idx,
+        false,
+        text
+    )
+    utils.set_hl(self.state.buffers.padding, self.state.marked_icons.selected.hl, self.state.display_current_entry_idx - 1)
+
+    vim.api.nvim_win_set_cursor(self.state.windows.padding, { self.state.display_current_entry_idx, 0 })
 end
 
 --- Deletes a file/folder.
@@ -125,7 +189,7 @@ function Actions:goto_parent(start_insert)
         local curr = select(1, self.state.cwd:gsub(".*/(.+)/.*$", "%1/"))
         self.state:cd(cwd, start_insert)
 
-        self:jump(self.state:index_display(curr), true)
+        self:jump_to(self.state:index_display(curr), true)
     end
 end
 
@@ -141,8 +205,10 @@ end
 ---Jumps to a given entry in the list, by specifying an index
 ---@param index number: the index to jump to (relative or absolute)
 ---@param absolute boolean?: Whether the given index is absolute. Defaults to false
-function Actions:jump(index, absolute)
+function Actions:jump_to(index, absolute)
+    print("i got called")
     local new_curr
+
     if absolute then
         new_curr = index
     else

@@ -232,4 +232,14 @@ M.defer = function(func, delay)
     end
 end
 
+--- Sets hl in given buffer
+---@param buffer number: The buffer id
+---@param hl string: The hl name
+---@param line number: line
+---@param col_start number?: First column (0 indexed). Defaults to 0
+---@param col_end number?: Last column (-1 for last). Defaults to -1
+M.set_hl = function(buffer, hl, line, col_start, col_end)
+    vim.api.nvim_buf_add_highlight(buffer, 0, hl, line, col_start or 0, col_end or -1)
+end
+
 return M
