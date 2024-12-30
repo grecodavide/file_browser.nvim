@@ -12,6 +12,16 @@
 ---@field preview_width number: percentage of floating win to be used for preview
 ---@field max_prompt_size number: max size (percentage) of prompt prefix
 ---@field use_treesitter boolean: Defaults to true
+---@field mappings file_browser.Mapping[]?: Mappings
+---@field use_default_mappings boolean?: Use a default set of mappings. Defaults to true
+---@field group_dirs boolean?: Whether directories should be grouped at the top
+
+---@class file_browser.Mapping
+---@field mode string|string[]: the mode for the mapping
+---@field lhs string: actual mapping
+---@field region string|string[]: the region currently focused for the mapping to exist. Valid values are `results` and `prompt`
+---@field callback string|function: callback. Can either be an existing action or a custom function
+---@field args table?: optional arguments for callback
 
 ---@class file_browser.Icon
 ---@field text string: The icon text

@@ -16,10 +16,10 @@ without necessarily using telescope.
 - preview scrolling
 
 ## WIP
-- [ ] Create file action (currently only if there is no match for the prompt). Should also support nesting
-- [ ] Delete file action
-- [ ] User customization for mappings (could be a cool idea to have a table inside `Actions`, from
-mode/mapping to action)
+- [x] Create file action (currently only if there is no match for the prompt). Should also support nesting
+- [x] Delete file action
+- [ ] Move/rename action
+- [x] User customization for mappings
 - [ ] (optional) give ability to directly edit results
 
 

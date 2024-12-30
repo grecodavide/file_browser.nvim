@@ -41,8 +41,6 @@ end
 local mini_icons = require("mini.icons")
 local dir_hl = "MiniIconsBlue"
 local dir_icon_text = ""
-local link_icon_text = "󱅷"
-local link_icon_hl = "MiniIconsBlue"
 
 local utils = require("file_browser.utils")
 local defer = utils.defer
@@ -76,16 +74,14 @@ local map = function(mode, lhs, callback, buffer)
     end
 end
 
-local is_insert = function()
-    return vim.fn.mode() == "i"
-end
-
-local create_entries = function(cwd, display_links, show_hidden, tbl)
+local create_entries = function(cwd, show_hidden, group_dirs, tbl)
     local results = get_from_cmd(cwd, "a", show_hidden)
+    local last_dir = 1
+
     for _, res in ipairs(results) do
         if res and res ~= "" then -- it's a valid entry
             if res:sub(#res) == "/" then -- it's a directory
-                table.insert(tbl, {
+                local entry = {
                     icon = {
                         text = dir_icon_text,
                         hl = dir_hl,
@@ -93,55 +89,20 @@ local create_entries = function(cwd, display_links, show_hidden, tbl)
                     text = res,
                     is_dir = true,
                     marked = false,
-                })
+                }
+
+                if group_dirs then
+                    table.insert(tbl, last_dir, entry)
+                    last_dir = last_dir + 1
+                else
+                    table.insert(tbl, entry)
+                end
             else
                 table.insert(tbl, transform(res))
             end
         end
     end
-
-    -- local directories = get_from_cmd(cwd, "d", show_hidden)
-    -- for _, dir in pairs(directories) do
-    --     if dir and dir ~= "" then
-    --         table.insert(tbl, {
-    --             icon = {
-    --                 text = dir_icon_text,
-    --                 hl = dir_hl,
-    --             },
-    --             text = dir,
-    --             is_dir = true,
-    --             marked = false,
-    --         })
-    --     end
-    -- end
-    --
-    -- if display_links then
-    --     local links = get_from_cmd(cwd, "l", show_hidden)
-    --     for _, link in pairs(links) do
-    --         if link and link ~= "" then
-    --             table.insert(tbl, {
-    --                 icon = {
-    --                     text = link_icon_text,
-    --                     hl = link_icon_hl,
-    --                 },
-    --                 text = link,
-    --                 is_dir = false,
-    --                 marked = false,
-    --             })
-    --         end
-    --     end
-    -- end
-    --
-    -- local files = get_from_cmd(cwd, "f", show_hidden)
-    -- for _, file in pairs(files) do
-    --     if file and file ~= "" then
-    --         table.insert(tbl, transform(file))
-    --     end
-    -- end
 end
-
--- TODO: state should also contain a "marked" value, containing all file
--- marked for either selection or cut
 
 ---@class file_browser.State
 ---@field windows file_browser.Layout: the Windows ID (initialized at invalid values)
@@ -156,22 +117,22 @@ end
 ---@field buf_opts table<file_browser.LayoutElement, vim.bo>
 ---@field win_opts table<file_browser.LayoutElement, vim.wo>
 ---@field options_to_restore table: options that should be restored globally once the windows get closed
----@field cwd string
----@field show_hidden boolean
----@field width_scale number
----@field height_scale number
----@field preview_width number
----@field max_prompt_size number
----@field marked_icons file_browser.MarkIcons
----@field marked {selected: file_browser.Entry[], cut: file_browser.Entry[]}
----@field debounce number
----@field display_links boolean
+---@field cwd string: current directory of the plugin. Note that it won't always coincide with nvim's
+---@field show_hidden boolean: Whether to show dotfiles
+---@field width_scale number: Width percentage for the plugin
+---@field height_scale number: Height percentage for the plugin
+---@field preview_width number: Preview percentage (relative to the whole plugin's width)
+---@field max_prompt_size number: Max size (in percentage) for promtp prefix. If the prompt prefix is longer than this, the shown path will be trimmed
+---@field marked_icons file_browser.MarkIcons: Icons to use to define marked entries
+---@field debounce number: ms to wait before updating the preview
 ---@field use_treesitter boolean: preview with treesitter/regular syntax
+---@field mappings file_browser.Mapping[]: List of mappings to create
+---@field group_dirs boolean: Whether the directories should be grouped at the top
 local State = {}
 
 local actions
 
----Returns a default state
+---Returns a default state, also binding `actions` to it
 ---@param opts file_browser.Config
 ---@return file_browser.State
 function State:new(opts)
@@ -186,58 +147,113 @@ function State:new(opts)
         },
     }
 
-    return setmetatable({
-        cwd = "",
-        options_to_restore = {
-            fillchars = {
-                floating = { eob = " " },
+    local tbl = setmetatable(
+        ---@type file_browser.State
+        {
+            cwd = "",
+            options_to_restore = {
+                fillchars = {
+                    floating = { eob = " " },
+                },
+                listchars = {
+                    floating = { tab = "  ", trail = " ", nbsp = " " },
+                },
             },
-            listchars = {
-                floating = { tab = "  ", trail = " ", nbsp = " " },
+            buf_opts = {},
+            win_opts = {},
+            win_configs = {},
+            results_width = 0,
+            windows = {
+                prompt_prefix = -1,
+                prompt = -1,
+                results_icon = -1,
+                results = -1,
+                preview = -1,
+                padding = -1,
             },
+
+            buffers = {
+                prompt_prefix = -1,
+                prompt = -1,
+                results_icon = -1,
+                results = -1,
+                preview = -1,
+                padding = -1,
+            },
+
+            entries = {},
+            entries_nr = 0,
+
+            display_entries = {},
+            display_current_entry = -1,
+            display_entries_nr = 0,
+
+            width_scale = opts.width_scale,
+            height_scale = opts.height_scale,
+            preview_width = opts.preview_width,
+            max_prompt_size = opts.max_prompt_size,
+
+            marked_icons = marked_icons,
+
+            show_hidden = opts.show_hidden,
+
+            debounce = opts.debounce,
+            display_links = opts.show_links,
+            use_treesitter = opts.use_treesitter,
+
+            mappings = opts.mappings,
+            group_dirs = opts.group_dirs,
         },
-        buf_opts = {},
-        win_opts = {},
-        win_configs = {},
-        results_width = 0,
-        windows = {
-            prompt_prefix = -1,
-            prompt = -1,
-            results_icon = -1,
-            results = -1,
-            preview = -1,
-            padding = -1,
-        },
+        self
+    )
 
-        buffers = {
-            prompt_prefix = -1,
-            prompt = -1,
-            results_icon = -1,
-            results = -1,
-            preview = -1,
-            padding = -1,
-        },
+    actions = require("file_browser.actions"):new(tbl)
+    return tbl
+end
 
-        entries = {},
-        entries_nr = 0,
+--- Parses a `file_browser.Mapping` to an actual nvim mapping, setting it up
+---@param mapping file_browser.Mapping
+function State:parse_mapping(mapping)
+    local args = mapping.args or {}
 
-        display_entries = {},
-        display_current_entry = -1,
-        display_entries_nr = 0,
+    local callback
 
-        width_scale = opts.width_scale,
-        height_scale = opts.height_scale,
-        preview_width = opts.preview_width,
-        max_prompt_size = opts.max_prompt_size,
+    if type(mapping.callback) == "string" then
+        callback = actions[mapping.callback]
+        if callback == nil then
+            local msg = string.format("Error trying to set up mapping %s. Invalid action: %s", mapping.lhs, mapping.callback)
+            vim.notify(msg, vim.log.levels.ERROR, {})
+            return
+        end
+        table.insert(args, 1, actions)
+    else
+        callback = mapping.callback
+    end
 
-        marked_icons = marked_icons,
+    if type(mapping.region) == "string" then
+        ---@diagnostic disable-next-line: assign-type-mismatch
+        mapping.region = { mapping.region }
+    end
 
-        show_hidden = opts.show_hidden,
+    local regions = vim.iter(mapping.region)
+        :map(function(region)
+            if region == "prompt" then
+                return self.buffers.prompt
+            elseif region == "results" then
+                return self.buffers.results
+            end
+            return nil
+        end)
+        :filter(function(region)
+            return region ~= nil
+        end)
+        :totable()
 
-        debounce = opts.debounce,
-        display_links = opts.show_links,
-        use_treesitter = opts.use_treesitter,
-    }, self)
+    for _, buf in ipairs(regions) do
+        vim.keymap.set(mapping.mode, mapping.lhs, function()
+            callback(unpack(args))
+        end, { buffer = buf })
+    end
 end
 
 function State:get_prompt()
@@ -278,35 +294,9 @@ function State:mark_current()
 end
 
 function State:create_mappings()
-    actions = require("file_browser.actions"):new(self)
-
-    -- #############
-    -- ### CLOSE ###
-    -- #############
-    map("n", "<Esc>", function()
-        self:close()
-    end, self.buffers.prompt)
-
-    -- ######################
-    -- ### HANDLE PREVIEW ###
-    -- ######################
-    map({ "i", "n" }, "<C-d>", function()
-        vim.api.nvim_win_set_cursor(self.windows.preview, { math.min(vim.fn.line("w$", self.windows.preview) + 1, vim.fn.line("$", self.windows.preview)), 0 })
-    end, { self.buffers.prompt, self.buffers.results })
-    map({ "i", "n" }, "<C-u>", function()
-        vim.api.nvim_win_set_cursor(self.windows.preview, { math.max(vim.fn.line("w0", self.windows.preview) - 1, 1), 0 })
-    end, { self.buffers.prompt, self.buffers.results })
-
-    -- ####################
-    -- ### GOTO RESULTS ###
-    -- ####################
-    map("i", "<C-f>", function()
-        utils.normal_mode()
-        vim.api.nvim_set_current_win(self.windows.results)
-    end, self.buffers.prompt)
-    map({ "n" }, "e", function()
-        vim.api.nvim_set_current_win(self.windows.results)
-    end, self.buffers.prompt)
+    vim.iter(self.mappings):each(function(mapping)
+        self:parse_mapping(mapping)
+    end)
 
     -- ###############
     -- ### MARKING ###
@@ -318,58 +308,10 @@ function State:create_mappings()
     map("i", "<C-g>", function()
         self:get_selected()
     end, self.buffers.prompt)
+end
 
-    -- ########################
-    -- ### RESULTS HANDLING ###
-    -- ########################
-    map({ "n", "i" }, "<C-n>", function()
-        actions:jump(1)
-    end, self.buffers.prompt)
-    map({ "n", "i" }, "<C-p>", function()
-        actions:jump(-1)
-    end, { self.buffers.prompt, self.buffers.results })
-    map({ "n" }, "j", function()
-        actions:jump(1)
-    end, { self.buffers.prompt, self.buffers.results })
-    map({ "n" }, "k", function()
-        actions:jump(-1)
-    end, { self.buffers.prompt, self.buffers.results })
-    map({ "n", "i" }, "<CR>", function()
-        actions:default()
-    end, { self.buffers.prompt, self.buffers.results })
-    map({ "n", "i" }, "<C-CR>", function()
-        actions:default(true)
-    end, { self.buffers.prompt, self.buffers.results })
-    map({ "n", "i" }, "<C-v>", function()
-        actions:open_split()
-    end, { self.buffers.prompt, self.buffers.results })
-
-    map({ "i", "n" }, "<C-e>", function()
-        actions:create()
-    end, { self.buffers.prompt, self.buffers.results })
-    map({ "i", "n" }, "<C-x>", function()
-        actions:delete(true)
-    end, { self.buffers.prompt, self.buffers.results })
-
-    -- ##############
-    -- ### PROMPT ###
-    -- ##############
-    map({ "i", "n" }, "<BS>", function()
-        if self:get_prompt() == "" then
-            actions:goto_parent(is_insert())
-        else
-            -- mode = 'n' means "ignore remappings, behave regularly"
-            vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<BS>", true, false, true), "n", false)
-        end
-    end, { self.buffers.prompt })
-
-    map({ "i", "n" }, "<BS>", function()
-        actions:goto_parent(is_insert())
-    end, { self.buffers.results })
-
-    map({ "n" }, "<Esc>", function()
-        vim.api.nvim_set_current_win(self.windows.prompt)
-    end, self.buffers.results)
+function State:get_actions()
+    return actions
 end
 
 function State:save_options()
@@ -597,7 +539,7 @@ function State:update_preview()
             local fullpath = self.cwd .. curr.text
             if curr.is_dir then
                 local tmp = {}
-                create_entries(fullpath, self.display_links, self.show_hidden, tmp)
+                create_entries(fullpath, self.show_hidden, self.group_dirs, tmp)
 
                 vim.api.nvim_buf_set_lines(self.buffers.preview, 0, -1, false, {})
                 local entry
@@ -666,7 +608,7 @@ end
 --- Populates the state with the entries for the current directory. Note that this does not
 --- display anything!
 function State:get_entries()
-    create_entries(self.cwd, self.display_links, self.show_hidden, self.entries)
+    create_entries(self.cwd, self.show_hidden, self.group_dirs, self.entries)
 
     self.entries_nr = #self.entries
     self.current_entry = 1
