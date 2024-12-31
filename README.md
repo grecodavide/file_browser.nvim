@@ -86,7 +86,7 @@ Example using lazy:
 ```lua
 return {
 return {
-    "personal/file_browser.nvim",
+    "grecodavide/file_browser.nvim",
     lazy = false,
     config = function()
         -- mandatory. Plugin won't work if this does not get called
@@ -122,9 +122,10 @@ return {
 - [ ] Still have to correctly merge `default_mappings` to custom
 
 
-> [!warn]
+> [!WARNING]
 > functions that modify a buffer's text must be called synchronously, so 
 > be careful hovering too big of a file, as it could lock you for a while
+
 
 # Credits
 Layout and behavior is inspired by [telescope file browser](https://github.com/nvim-telescope/telescope-file-browser.nvim)
