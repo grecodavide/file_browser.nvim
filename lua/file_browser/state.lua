@@ -92,7 +92,7 @@ end
 ---@field height_scale number: Height percentage for the plugin
 ---@field preview_width number: Preview percentage (relative to the whole plugin's width)
 ---@field max_prompt_size number: Max size (in percentage) for promtp prefix. If the prompt prefix is longer than this, the shown path will be trimmed
----@field marked_icons file_browser.MarkIcons: Icons to use to define marked entries
+---@field marked_icons file_browser.Icon: Icons to use to define marked entries
 ---@field debounce number: ms to wait before updating the preview
 ---@field use_treesitter boolean: preview with treesitter/regular syntax
 ---@field mappings file_browser.Mapping[]: List of mappings to create
@@ -106,14 +106,8 @@ local State = {}
 ---@return file_browser.State
 function State:new(opts)
     local marked_icons = {
-        selected = {
-            text = string.format(" %s", opts.marked_icons.selected.text),
-            hl = opts.marked_icons.selected.hl,
-        },
-        cut = {
-            text = string.format(" %s", opts.marked_icons.selected.text),
-            hl = opts.marked_icons.selected.hl,
-        },
+        text = string.format(" %s", opts.marked_icons.selected.text),
+        hl = opts.marked_icons.selected.hl,
     }
 
     local tbl = setmetatable(
@@ -201,33 +195,11 @@ function State:parse_mapping(mapping)
         callback = mapping.callback
     end
 
-    if type(mapping.region) == "string" then
-        ---@diagnostic disable-next-line: assign-type-mismatch
-        mapping.region = { mapping.region }
-    end
+    pcall(vim.keymap.del, mapping.mode, mapping.lhs, { buffer = self.buffers.prompt })
 
-    local regions = vim.iter(mapping.region)
-        :map(function(region)
-            if region == "prompt" then
-                return self.buffers.prompt
-            elseif region == "results" then
-                return self.buffers.results
-            end
-            return nil
-        end)
-        :filter(function(region)
-            return region ~= nil
-        end)
-        :totable()
-
-    for _, buf in ipairs(regions) do
-        -- TODO: blink overrides mapping
-        pcall(vim.keymap.del, mapping.mode, mapping.lhs, { buffer = buf })
-
-        vim.keymap.set(mapping.mode, mapping.lhs, function()
-            callback(unpack(args))
-        end, { buffer = buf, noremap = true })
-    end
+    vim.keymap.set(mapping.mode, mapping.lhs, function()
+        callback(unpack(args))
+    end, { buffer = self.buffers.prompt, noremap = true })
 end
 
 function State:get_prompt()
@@ -272,13 +244,7 @@ function State:create_autocmds()
         buffer = self.buffers.prompt,
         callback = function()
             self:set_options("original")
-        end,
-    })
-    vim.api.nvim_create_autocmd("WinEnter", {
-        group = augroup,
-        buffer = self.buffers.results,
-        callback = function()
-            self:set_options("floating")
+            self:close()
         end,
     })
     vim.api.nvim_create_autocmd("WinEnter", {
@@ -410,15 +376,14 @@ function State:show_entries(should_jump)
         set_hl(self.buffers.results, entry.icon.hl, row - 1)
     end
 
-    -- vim.iter(self.marked):each(function(e)
-    --     -- vim.print(e)
-    --     local idx = self:index_display(e.text)
-    --     if idx ~= -1 then
-    --         vim.api.nvim_buf_set_lines(self.buffers.padding, idx - 1, idx, false, { self.marked_icons.selected.text })
-    --         set_hl(self.buffers.padding, self.marked_icons.selected.hl, idx - 1)
-    --     end
-    -- end)
-    --
+    vim.iter(self.marked[self.cwd] or {}):each(function(e)
+        local idx = self:index_display(e.text)
+        if idx ~= -1 then
+            vim.api.nvim_buf_set_lines(self.buffers.padding, idx - 1, idx, false, { self.marked_icons.text })
+            set_hl(self.buffers.padding, self.marked_icons.hl, idx - 1)
+        end
+    end)
+
     if should_jump == nil or should_jump then
         self.actions:jump_to(1, true) -- reset current entry to first, usually you want the first result when you search stuff
     end
@@ -443,6 +408,8 @@ function State:cd(cwd, start_insert, relative)
     else
         self:update_prompt(cwd, dir_hl)
     end
+
+    self.marked[self.cwd] = self.marked[self.cwd] or {}
     self:get_entries()
 
     self:show_entries()
@@ -565,7 +532,9 @@ end
 function State:close()
     utils.normal_mode()
     self:windo(function(_, value)
-        vim.api.nvim_win_close(value, true)
+        if vim.api.nvim_win_is_valid(value) then
+            vim.api.nvim_win_close(value, true)
+        end
     end)
     vim.api.nvim_set_current_win(last_win)
 end

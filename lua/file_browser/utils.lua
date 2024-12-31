@@ -92,7 +92,7 @@ M.get_win_configs = function(width_scale, height_scale, preview_scale)
     local results_height = height - 4
 
     ---@type table<string, vim.api.keyset.win_config>
-    return {
+    local configs = {
         prompt_prefix = {
             relative = "editor",
             width = 1,
@@ -139,6 +139,7 @@ M.get_win_configs = function(width_scale, height_scale, preview_scale)
             col = base_col + 6,
             border = { " ", " ", "│", "│", "┘", "─", "─", "" },
             zindex = 3,
+            focusable = false,
         },
         preview = {
             relative = "editor",
@@ -150,8 +151,8 @@ M.get_win_configs = function(width_scale, height_scale, preview_scale)
             zindex = 1,
             focusable = false,
         },
-    },
-        results_width
+    }
+    return configs, results_width
 end
 
 ---Saves the original values of the options that will need to be modified by the plugin

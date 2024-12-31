@@ -34,6 +34,7 @@ function Actions:scroll_preview_down()
     )
 end
 
+---@private
 --- Opens a file.
 ---@param file string
 ---@param absolute boolean?: defaults to true
@@ -74,10 +75,48 @@ function Actions:default(cd)
     end
 end
 
-function Actions:move_to_cwd()
-    vim.iter(self.state.marked):each(function(entry)
-        vim.print(entry)
+--- Moves selection to cwd
+---@param delete_selection boolean?: Remove marks after a successful move? defaults to true
+function Actions:move_to_cwd(delete_selection)
+    vim.iter(self.state.marked):each(function(cwd, entries)
+        for i, entry in ipairs(entries) do
+            local fullpath = string.format("%s%s", cwd, entry.text)
+            local exit_code = os.execute(string.format("mv %s %s >/dev/null", fullpath, self.state.cwd))
+            if exit_code ~= 0 then
+                vim.notify("Could not move " .. entry.text, vim.log.levels.ERROR, {})
+            else
+                if delete_selection == nil or delete_selection then
+                    table.remove(self.state.marked[self.state.cwd], i)
+                end
+            end
+        end
     end)
+    local old = self.state.display_current_entry_idx
+
+    self.state:cd(self.state.cwd, is_insert())
+    self:jump_to(old, true)
+end
+
+--- Moves selection to cwd
+---@param delete_selection boolean?: Remove marks after a successful move? defaults to true
+function Actions:copy_to_cwd(delete_selection)
+    vim.iter(self.state.marked):each(function(cwd, entries)
+        for i, entry in ipairs(entries) do
+            local fullpath = string.format("%s%s", cwd, entry.text)
+            local exit_code = os.execute(string.format("cp -r %s %s >/dev/null", fullpath, self.state.cwd))
+            if exit_code ~= 0 then
+                vim.notify("Could not copy " .. entry.text, vim.log.levels.ERROR, {})
+            else
+                if delete_selection == nil or delete_selection then
+                    table.remove(self.state.marked[self.state.cwd], i)
+                end
+            end
+        end
+    end)
+    local old = self.state.display_current_entry_idx
+
+    self.state:cd(self.state.cwd, is_insert())
+    self:jump_to(old, true)
 end
 
 --- Sets nvim CWD to the one of this plugin
@@ -86,11 +125,13 @@ function Actions:cd()
     print("Set CWD to " .. self.state.cwd)
 end
 
+---@private
 --- Searches the current entry among the marked ones, returning its index if found, -1 otherwise
 ---@return number: The searched index, or -1 if not found
 function Actions:search_marked()
-    for i, k in ipairs(self.state.marked) do
-        if k.text == self.state:get_current_entry().text then
+    local current_entry = self.state:get_current_entry()
+    for i, k in ipairs(self.state.marked[self.state.cwd]) do
+        if k.text == current_entry.text then
             return i
         end
     end
@@ -98,6 +139,7 @@ function Actions:search_marked()
     return -1
 end
 
+--- Renames current entry
 function Actions:rename()
     local entry = self.state:get_current_entry()
     local old_name = entry.text
@@ -126,14 +168,15 @@ function Actions:rename()
     self.state:cd(self.state.cwd, is_insert())
 end
 
+--- Marks current entry.
 function Actions:mark_current()
     local idx = self:search_marked()
     local text
     if idx == -1 then
-        table.insert(self.state.marked, self.state:get_current_entry())
-        text = { table.concat({ self.state.marked_icons.selected.text, " " }) }
+        table.insert(self.state.marked[self.state.cwd], self.state:get_current_entry())
+        text = { table.concat({ self.state.marked_icons.text, " " }) }
     else
-        table.remove(self.state.marked, idx)
+        table.remove(self.state.marked[self.state.cwd], idx)
         text = { "" } -- empty line, not nothing: it would delete the line and so move all the other marks
     end
 
@@ -144,7 +187,7 @@ function Actions:mark_current()
         false,
         text
     )
-    utils.set_hl(self.state.buffers.padding, self.state.marked_icons.selected.hl, self.state.display_current_entry_idx - 1)
+    utils.set_hl(self.state.buffers.padding, self.state.marked_icons.hl, self.state.display_current_entry_idx - 1)
 
     vim.api.nvim_win_set_cursor(self.state.windows.padding, { self.state.display_current_entry_idx, 0 })
 end
@@ -154,7 +197,7 @@ end
 ---@param ask_confirmation boolean?: Whether the command should ask for confirmation before deleting. Defaults to true
 function Actions:delete(force, ask_confirmation)
     local entry = table.concat({ self.state.cwd, self.state:get_current_entry().text })
-    local cmd = string.format("rm --interactive=never -r%s", force and "f" or "")
+    local cmd = string.format("rm --interactive=never -r%s >/dev/null", force and "f" or "")
 
     if ask_confirmation == false or vim.fn.input("Confirm? [Y/n] ") ~= "n" then
         local exit_code = os.execute(table.concat({ cmd, entry }, " "))
@@ -172,7 +215,7 @@ function Actions:close()
 end
 
 --- Creates file/directory.
----@param jump boolean?: Should jump to created directory/open file?
+---@param jump boolean?: Should jump to created directory/open file? Defaults to true
 function Actions:create(jump)
     local cwd = self.state.cwd
     local input = vim.fn.input("Create: ")
@@ -207,7 +250,7 @@ function Actions:create(jump)
     self.state:cd(self.state.cwd, is_insert())
 end
 
----Go to parent directory
+--- Goes to parent directory
 ---@param start_insert boolean?
 function Actions:goto_parent(start_insert)
     local _, seps = self.state.cwd:gsub("/", "")
@@ -220,6 +263,7 @@ function Actions:goto_parent(start_insert)
     end
 end
 
+--- If prompt is empty, goes to parent mode, otherwise behave like a regular <BS>.
 function Actions:goto_parent_or_delete()
     if self.state:get_prompt() == "" then
         self:goto_parent(is_insert())

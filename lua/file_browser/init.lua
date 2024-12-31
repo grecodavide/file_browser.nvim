@@ -12,123 +12,104 @@ end
 local default_mappings = {
     {
         mode = "n",
-        region = { "results", "prompt" },
         lhs = "<esc>",
         callback = "close",
     },
     {
         mode = { "n", "i" },
-        region = { "results", "prompt" },
         lhs = "<C-s>",
         callback = "mark_current",
     },
     {
         mode = "i",
-        region = { "results", "prompt" },
         lhs = "<C-.>",
         callback = "cd",
     },
     {
         mode = "n",
-        region = "prompt",
         lhs = ".",
         callback = "cd",
     },
     {
         mode = "n",
-        region = { "prompt" },
         lhs = "r",
         callback = "rename",
     },
     {
         mode = { "n", "i" },
         lhs = "<C-d>",
-        region = { "prompt", "results" },
-        callback = "scroll_preview_up",
-    },
-    {
-        mode = { "n", "i" },
-        lhs = "<C-u>",
-        region = { "prompt", "results" },
         callback = "scroll_preview_down",
     },
     {
         mode = { "n", "i" },
+        lhs = "<C-u>",
+        callback = "scroll_preview_up",
+    },
+    {
+        mode = { "n", "i" },
         lhs = "<C-n>",
-        region = { "prompt", "results" },
         callback = "jump_to",
         args = { 1 },
     },
     {
         mode = "n",
         lhs = "k",
-        region = { "prompt", "results" }, -- also results so that it wraps
         callback = "jump_to",
         args = { -1 },
     },
     {
         mode = { "n", "i" },
         lhs = "<C-p>",
-        region = { "prompt", "results" },
         callback = "jump_to",
         args = { -1 },
     },
     {
         mode = "n",
         lhs = "j",
-        region = { "prompt", "results" },
         callback = "jump_to",
         args = { 1 },
     },
     {
         mode = { "n", "i" },
         lhs = "<CR>",
-        region = { "prompt", "results" },
         callback = "default",
     },
     {
         mode = { "n", "i" },
         lhs = "<C-CR>",
-        region = { "prompt", "results" },
         callback = "default",
         args = { true },
     },
     {
         mode = { "n", "i" },
         lhs = "<C-v>",
-        region = { "prompt", "results" },
         callback = "open_split",
     },
     {
         mode = { "n", "i" },
         lhs = "<C-e>",
-        region = { "prompt", "results" },
         callback = "create",
     },
     {
         mode = { "n", "i" },
         lhs = "<C-x>",
-        region = { "prompt", "results" },
         callback = "delete",
         args = { true },
     },
     {
         mode = "n",
         lhs = "d",
-        region = { "prompt", "results" },
         callback = "delete",
         args = { true },
     },
     {
         mode = "n",
         lhs = "e",
-        region = "prompt",
         callback = "create",
     },
     {
         mode = { "n" },
         lhs = "x",
-        region = "prompt",
         callback = "delete",
         args = { true },
     },
@@ -139,15 +120,17 @@ local default_mappings = {
     {
         mode = { "i", "n" },
         lhs = "<BS>",
-        region = { "prompt" },
         callback = "goto_parent_or_delete",
     },
-
     {
         mode = { "i", "n" },
         lhs = "<C-m>",
-        region = { "prompt", "results" },
         callback = "move_to_cwd",
+    },
+    {
+        mode = { "i", "n" },
+        lhs = "<C-y>",
+        callback = "copy_to_cwd",
     },
 }
 
@@ -217,6 +200,13 @@ M.setup = function(opts)
     M.opts = vim.tbl_deep_extend("force", M.opts, opts or {})
 
     if M.opts.use_default_mappings then
+        for i, mapping in ipairs(default_mappings) do
+            -- TODO:
+            -- - if mapping exists dont do anything
+            -- - if mapping exists partially, apply the partial mapping
+            -- - if mapping does not exist apply all
+        end
+
         M.opts.mappings = vim.tbl_extend("keep", M.opts.mappings, default_mappings)
     end
 
