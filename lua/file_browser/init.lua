@@ -89,6 +89,7 @@ local default_mappings = {
         mode = { "n", "i" },
         lhs = "<C-e>",
         callback = "create",
+        args = { false },
     },
     {
         mode = { "n", "i" },

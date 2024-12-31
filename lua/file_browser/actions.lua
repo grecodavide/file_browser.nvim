@@ -199,13 +199,18 @@ function Actions:delete(force, ask_confirmation)
     local entry = table.concat({ self.state.cwd, self.state:get_current_entry().text })
     local cmd = string.format("rm --interactive=never -r%s >/dev/null", force and "f" or "")
 
-    if ask_confirmation == false or vim.fn.input("Confirm? [Y/n] ") ~= "n" then
-        local exit_code = os.execute(table.concat({ cmd, entry }, " "))
-        if exit_code ~= 0 then
-            vim.notify("Could not delete!", vim.log.levels.ERROR, {})
+    if ask_confirmation ~= false then
+        local confirmation = vim.fn.input("Confirm? [Y/n] ")
+        if confirmation == nil or confirmation == "" or confirmation == "n" then
+            vim.notify("Deletion canceled", vim.log.levels.WARN, {})
+            return
         end
     end
 
+    local exit_code = os.execute(table.concat({ cmd, entry }, " "))
+    if exit_code ~= 0 then
+        vim.notify("Could not delete!", vim.log.levels.ERROR, {})
+    end
     self.state:cd(self.state.cwd, is_insert())
 end
 
