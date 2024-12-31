@@ -7,13 +7,8 @@ without necessarily using telescope.
 - `fzf`
 - `fd`
 
-## Currently implemented
-- Base filesystem navigation
-- Prompt prefix with proper trimming
-- preview with debounce and (optional) treesitter highlighting
-- opening files (optionally in vsplit)
-- fuzzy filtering with `fzf`
-- preview scrolling
+## Showcase
+![Preview](https://imgur.com/QflGv63.gif)
 
 ## Available actions
 | Action | Argument | Description |
