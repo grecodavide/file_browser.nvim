@@ -91,6 +91,7 @@ M.get_win_configs = function(width_scale, height_scale, preview_scale)
     -- 1 prompt, 2 prompt border, 1 border results
     local results_height = height - 4
 
+    ---@type table<string, vim.api.keyset.win_config>
     return {
         prompt_prefix = {
             relative = "editor",

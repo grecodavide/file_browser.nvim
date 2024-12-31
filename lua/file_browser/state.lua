@@ -1,8 +1,4 @@
--- TODO:
--- - add option to determine percentage of prompt before trimming it: for example we can
---   add option to opts defining the percentage, and on update_prompt do a check: if len > max_len ( = winconf.prompt.width * percentage)
---   then print only the last max_len chars
--- - Add opt use_treesitter and, if set to true, use treesitter hl
+-- TODO: marked: should also save cwd, so a table from cwd to marked, and then iter
 
 local last_win
 local set_hl = require("file_browser.utils").set_hl
@@ -101,7 +97,7 @@ end
 ---@field use_treesitter boolean: preview with treesitter/regular syntax
 ---@field mappings file_browser.Mapping[]: List of mappings to create
 ---@field group_dirs boolean: Whether the directories should be grouped at the top
----@field marked file_browser.Entry[]: list of marked items
+---@field marked table<string, file_browser.Entry>: list of marked items, based on cwd
 ---@field actions file_browser.Actions
 local State = {}
 
@@ -224,14 +220,13 @@ function State:parse_mapping(mapping)
         end)
         :totable()
 
-    -- if type(mapping.callback) == "string" and mapping.callback == "jump" then
-    --     vim.print(args)
-    -- end
-
     for _, buf in ipairs(regions) do
+        -- TODO: blink overrides mapping
+        pcall(vim.keymap.del, mapping.mode, mapping.lhs, { buffer = buf })
+
         vim.keymap.set(mapping.mode, mapping.lhs, function()
             callback(unpack(args))
-        end, { buffer = buf, remap = true })
+        end, { buffer = buf, noremap = true })
     end
 end
 
@@ -415,14 +410,15 @@ function State:show_entries(should_jump)
         set_hl(self.buffers.results, entry.icon.hl, row - 1)
     end
 
-    vim.iter(self.marked):each(function(e)
-        local idx = self:index_display(e.text)
-        if idx ~= -1 then
-            vim.api.nvim_buf_set_lines(self.buffers.padding, idx - 1, idx, false, { self.marked_icons.selected.text })
-            set_hl(self.buffers.padding, self.marked_icons.selected.hl, idx - 1)
-        end
-    end)
-
+    -- vim.iter(self.marked):each(function(e)
+    --     -- vim.print(e)
+    --     local idx = self:index_display(e.text)
+    --     if idx ~= -1 then
+    --         vim.api.nvim_buf_set_lines(self.buffers.padding, idx - 1, idx, false, { self.marked_icons.selected.text })
+    --         set_hl(self.buffers.padding, self.marked_icons.selected.hl, idx - 1)
+    --     end
+    -- end)
+    --
     if should_jump == nil or should_jump then
         self.actions:jump_to(1, true) -- reset current entry to first, usually you want the first result when you search stuff
     end
@@ -431,13 +427,22 @@ end
 --- Goes to a given directory, populating results and updating the state.
 ---@param cwd string: The path to cd to
 ---@param start_insert boolean?: Whether we should start in insert mode. Defaults to true
-function State:cd(cwd, start_insert)
+---@param relative boolean?: is it relative? defaults to false
+function State:cd(cwd, start_insert, relative)
     self:reset_entries()
     if start_insert == nil or start_insert then
         vim.cmd([[startinsert]])
     end
 
-    self:update_prompt(cwd, dir_hl)
+    if cwd:sub(#cwd) ~= "/" then
+        cwd = cwd .. "/"
+    end
+
+    if relative then
+        self:update_prompt(self.cwd .. cwd, dir_hl)
+    else
+        self:update_prompt(cwd, dir_hl)
+    end
     self:get_entries()
 
     self:show_entries()
@@ -450,14 +455,6 @@ function State:focus()
     end
 
     vim.api.nvim_set_current_win(self.windows.prompt)
-end
-
-function State:get_selected_cut()
-    return vim.iter(self.entries)
-        :filter(function(entry)
-            return entry.marked_cut
-        end)
-        :totable()
 end
 
 ---@type function|nil: it will be nil if no function was called in the last `self.debounce` ms, a function to cancel last invocation otherwise

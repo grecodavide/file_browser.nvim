@@ -34,6 +34,19 @@ function Actions:scroll_preview_down()
     )
 end
 
+--- Opens a file.
+---@param file string
+---@param absolute boolean?: defaults to true
+function Actions:open(file, absolute)
+    self.state:close()
+
+    if absolute == nil or absolute then
+        vim.cmd.edit(file)
+    else
+        vim.cmd.edit(self.state.cwd .. file)
+    end
+end
+
 --- Default action. If dir, sets state.cwd to it, if file, opens it
 ---@param cd boolean?: should cd to directory. Defaults to false
 function Actions:default(cd)
@@ -54,13 +67,17 @@ function Actions:default(cd)
         -- reset prompt
         vim.api.nvim_buf_set_lines(self.state.buffers.prompt, 0, -1, false, {})
     else
-        self.state:close()
-
         if cd then
             vim.fn.chdir(self.state.cwd)
         end
-        vim.cmd.edit(new_cwd)
+        self:open(new_cwd, true)
     end
+end
+
+function Actions:move_to_cwd()
+    vim.iter(self.state.marked):each(function(entry)
+        vim.print(entry)
+    end)
 end
 
 --- Sets nvim CWD to the one of this plugin
@@ -155,7 +172,9 @@ function Actions:close()
 end
 
 --- Creates file/directory.
-function Actions:create()
+---@param jump boolean?: Should jump to created directory/open file?
+function Actions:create(jump)
+    local cwd = self.state.cwd
     local input = vim.fn.input("Create: ")
     local base = input:match("(.+)/.*") or ""
     local file = input:match("[^/]+$")
@@ -167,12 +186,20 @@ function Actions:create()
             vim.notify("Could note create directories.", vim.log.levels.ERROR, {})
             return
         end
+
+        if jump == nil or jump then
+            self.state:cd(base, is_insert())
+        end
     end
 
     if file ~= nil then
-        file = table.concat({ self.state.cwd, input })
+        file = table.concat({ cwd, input })
         if os.execute(string.format("[ ! -f %s ] && touch %s", file, file)) ~= 0 then
             vim.notify("Could note create file.", vim.log.levels.ERROR, {})
+            return
+        end
+        if jump == nil or jump then
+            self:open(file, true)
             return
         end
     end
@@ -206,7 +233,6 @@ end
 ---@param index number: the index to jump to (relative or absolute)
 ---@param absolute boolean?: Whether the given index is absolute. Defaults to false
 function Actions:jump_to(index, absolute)
-    print("i got called")
     local new_curr
 
     if absolute then

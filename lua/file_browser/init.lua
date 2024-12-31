@@ -142,6 +142,13 @@ local default_mappings = {
         region = { "prompt" },
         callback = "goto_parent_or_delete",
     },
+
+    {
+        mode = { "i", "n" },
+        lhs = "<C-m>",
+        region = { "prompt", "results" },
+        callback = "move_to_cwd",
+    },
 }
 
 ---@type file_browser.Config
@@ -183,9 +190,6 @@ local state
 ---Opens the main window
 ---@param cwd string?: The path to search into. Default to cwd
 M.open = function(cwd)
-    package.loaded["file_browser.state"] = nil
-    package.loaded["file_browser.actions"] = nil
-
     state = require("file_browser.state"):new(M.opts)
     utils.save_options(state.options_to_restore)
 

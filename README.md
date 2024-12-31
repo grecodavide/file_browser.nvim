@@ -15,10 +15,14 @@ without necessarily using telescope.
 - fuzzy filtering with `fzf`
 - preview scrolling
 
+## Setup
+
+
 ## WIP
 - [x] Create file action (currently only if there is no match for the prompt). Should also support nesting
 - [x] Delete file action
-- [ ] Move/rename action
+- [x] Rename action
+- [ ] Move action
 - [ ] Bulk rename
 - [x] User customization for mappings
 - [ ] (optional) give ability to directly edit results
