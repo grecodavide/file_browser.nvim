@@ -166,6 +166,8 @@ M.opts = {
     use_default_mappings = true,
 
     mappings = {},
+
+    respect_ignore = true,
 }
 
 ---@type file_browser.State

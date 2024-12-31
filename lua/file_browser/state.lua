@@ -1,5 +1,3 @@
--- TODO: marked: should also save cwd, so a table from cwd to marked, and then iter
-
 local last_win
 local set_hl = require("file_browser.utils").set_hl
 
@@ -7,19 +5,18 @@ local set_hl = require("file_browser.utils").set_hl
 ---@param path string: The path to search into
 ---@param type "f"|"d"|"l"|"a": The type to match.
 ---@param show_hidden boolean: Whether to show hidden files
+---@param respect_ignore boolean?: Respect gitignore. Defaults to true
 ---@return string[]: The output for this command
-local function get_from_cmd(path, type, show_hidden)
-    if show_hidden then
-        if type == "a" then
-            return vim.split(io.popen(string.format("cd '%s' && fd --hidden --exact-depth=1", path), "r"):read("*a"), "\n")
-        end
-        return vim.split(io.popen(string.format("cd '%s' && fd --hidden --exact-depth=1 -t %s", path, type), "r"):read("*a"), "\n")
-    end
+local function get_from_cmd(path, type, show_hidden, respect_ignore)
+    local cmd = string.format(
+        "cd '%s' && fd --exact-depth=1 %s%s%s",
+        path,
+        show_hidden and "--hidden " or "",
+        respect_ignore == false and "-I " or "",
+        type ~= "a" and "-t " .. type or ""
+    )
 
-    if type == "a" then
-        return vim.split(io.popen(string.format("cd '%s' && fd --exact-depth=1", path), "r"):read("*a"), "\n")
-    end
-    return vim.split(io.popen(string.format("cd '%s' && fd --exact-depth=1 -t %s", path, type), "r"):read("*a"), "\n")
+    return vim.split(io.popen(cmd):read("*a"), "\n")
 end
 
 local mini_icons = require("mini.icons")
@@ -43,8 +40,8 @@ local function transform(entry)
     }
 end
 
-local create_entries = function(cwd, show_hidden, group_dirs, tbl)
-    local results = get_from_cmd(cwd, "a", show_hidden)
+local create_entries = function(cwd, show_hidden, respect_ignore, group_dirs, tbl)
+    local results = get_from_cmd(cwd, "a", show_hidden, respect_ignore)
     local last_dir = 1
 
     for _, res in ipairs(results) do
@@ -99,6 +96,8 @@ end
 ---@field group_dirs boolean: Whether the directories should be grouped at the top
 ---@field marked table<string, file_browser.Entry>: list of marked items, based on cwd
 ---@field actions file_browser.Actions
+---@field respect_ignore boolean: Respect gitignore and similar
+
 local State = {}
 
 ---Returns a default state, also binding `actions` to it
@@ -159,6 +158,7 @@ function State:new(opts)
             marked_icons = marked_icons,
 
             show_hidden = opts.show_hidden,
+            respect_ignore = opts.respect_ignore,
 
             debounce = opts.debounce,
             display_links = opts.show_links,
@@ -441,7 +441,7 @@ function State:update_preview()
             local fullpath = self.cwd .. curr.text
             if curr.is_dir then
                 local tmp = {}
-                create_entries(fullpath, self.show_hidden, self.group_dirs, tmp)
+                create_entries(fullpath, self.show_hidden, self.respect_ignore, self.group_dirs, tmp)
 
                 vim.api.nvim_buf_set_lines(self.buffers.preview, 0, -1, false, {})
                 local entry
@@ -510,7 +510,7 @@ end
 --- Populates the state with the entries for the current directory. Note that this does not
 --- display anything!
 function State:get_entries()
-    create_entries(self.cwd, self.show_hidden, self.group_dirs, self.entries)
+    create_entries(self.cwd, self.show_hidden, self.respect_ignore, self.group_dirs, self.entries)
 
     self.entries_nr = #self.entries
     self.current_entry = 1

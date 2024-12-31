@@ -15,6 +15,7 @@
 ---@field mappings file_browser.Mapping[]?: Mappings
 ---@field use_default_mappings boolean?: Use a default set of mappings. Defaults to true
 ---@field group_dirs boolean?: Whether directories should be grouped at the top
+---@field respect_ignore boolean?: Should respect gitignore and similar. Defaults to true
 
 ---@class file_browser.Mapping
 ---@field mode string|string[]: the mode for the mapping

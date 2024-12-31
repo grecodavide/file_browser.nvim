@@ -74,6 +74,7 @@ without necessarily using telescope.
 | `mappings` | `file_browser.Mapping[]?` | Mappings |
 | `use_default_mappings` | `boolean?` | Use a default set of mappings. Defaults to true |
 | `group_dirs` | `boolean?` | Whether directories should be grouped at the top |
+| `respect_ignore` | `boolean?` | Whether `.gitignore` and similar should be respected. Defaults to true |
 
 ## Setup
 
