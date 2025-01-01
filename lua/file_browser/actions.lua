@@ -89,7 +89,7 @@ function Actions:move_to_cwd(delete_selection)
     end)
     local old = self.state.display_current_entry_idx
 
-    self.state:cd(self.state.cwd, is_insert())
+    self.state:reload()
     self:jump_to(old, true)
 end
 
@@ -111,7 +111,7 @@ function Actions:copy_to_cwd(delete_selection)
     end)
     local old = self.state.display_current_entry_idx
 
-    self.state:cd(self.state.cwd, is_insert())
+    self.state:reload()
     self:jump_to(old, true)
 end
 
@@ -162,7 +162,17 @@ function Actions:rename()
         return
     end
 
-    self.state:cd(self.state.cwd, is_insert())
+    self.state:reload()
+end
+
+function Actions:bulk_rename()
+    vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), true, {
+        relative = "editor",
+        row = 0,
+        col = 0,
+        width = vim.o.columns,
+        height = vim.o.lines,
+    })
 end
 
 --- Marks current entry.
@@ -208,7 +218,7 @@ function Actions:delete(force, ask_confirmation)
     if exit_code ~= 0 then
         vim.notify("Could not delete!", vim.log.levels.ERROR, {})
     end
-    self.state:cd(self.state.cwd, is_insert())
+    self.state:reload()
 end
 
 --- Closes windows
@@ -249,7 +259,7 @@ function Actions:create(jump)
         end
     end
 
-    self.state:cd(self.state.cwd, is_insert())
+    self.state:reload()
 end
 
 --- Goes to parent directory

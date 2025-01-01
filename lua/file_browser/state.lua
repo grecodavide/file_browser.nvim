@@ -207,14 +207,19 @@ function State:_parse_mapping()
     end)
 end
 
+---Get prompt text
+---@return string: text of prompt
 function State:get_prompt()
     return vim.api.nvim_buf_get_lines(self.buffers.prompt, 0, -1, false)[1]
 end
 
+---Get current entry
+---@return file_browser.Entry
 function State:get_current_entry()
     return self.display_entries[self.display_current_entry_idx]
 end
 
+---Creates mappings. This expects mappings have already been parsed
 function State:create_mappings()
     vim.iter(mappings):each(function(mapping)
         vim.keymap.set(mapping.mode, mapping.lhs, function()
@@ -223,10 +228,13 @@ function State:create_mappings()
     end)
 end
 
+---Get `Actions` object associated with this state
 function State:get_actions()
     return self.actions
 end
 
+---Saves all options to the current value. This way, options that are
+---global can be simply saved and restored once the windows get closed
 function State:save_options()
     for opt, _ in pairs(self.options_to_restore) do
         if self.options_to_restore[opt].original == nil then
@@ -243,6 +251,7 @@ function State:set_options(conf)
     end
 end
 
+---Creates autocmds for buffers
 function State:create_autocmds()
     local augroup = vim.api.nvim_create_augroup("file-browser", { clear = true })
 
@@ -314,6 +323,7 @@ function State:create_windows()
     self:create_mappings()
 end
 
+---Resets display entries to all current entries
 function State:reset_display_entries()
     self.display_entries = vim.deepcopy(self.entries)
     self.display_entries_nr = self.entries_nr
@@ -343,6 +353,7 @@ function State:index_display(value)
     return -1
 end
 
+---Filter results based on current prompt text
 function State:filter_results()
     local text = vim.api.nvim_buf_get_lines(self.buffers.prompt, 0, 1, false)[1]
     if text == nil or text == "" then
@@ -366,6 +377,11 @@ function State:filter_results()
     end
 
     self:show_entries()
+end
+
+function State:reload()
+    self:get_entries()
+    self:show_entries(false)
 end
 
 --- Displays the current `display_entries`.
@@ -395,6 +411,8 @@ function State:show_entries(should_jump)
 
     if should_jump == nil or should_jump then
         self.actions:jump_to(1, true) -- reset current entry to first, usually you want the first result when you search stuff
+    else
+        self.actions:jump_to(self.display_current_entry_idx, true)
     end
 end
 
@@ -519,10 +537,11 @@ end
 --- Populates the state with the entries for the current directory. Note that this does not
 --- display anything!
 function State:get_entries()
+    self.entries = {}
+    self.display_entries = {}
     self:_create_entries(self.cwd)
 
     self.entries_nr = #self.entries
-    self.current_entry = 1
 
     self.display_entries = vim.deepcopy(self.entries)
     self.display_entries_nr = self.entries_nr
