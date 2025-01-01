@@ -197,20 +197,82 @@ M.get_state = function()
     return state
 end
 
+local function contains(tbl, value)
+    for _, e in ipairs(tbl) do
+        if e == value then
+            return true
+        end
+    end
+    return false
+end
+local function contains_key(tbl, value)
+    for key, _ in pairs(tbl) do
+        if key == value then
+            return true
+        end
+    end
+    return false
+end
+
+local function get_user_mappings()
+    local already_seen = {}
+
+    for _, mapping in ipairs(M.opts.mappings) do
+        local lhs = mapping.lhs
+        if already_seen[lhs] == nil then
+            already_seen[lhs] = {}
+        end
+
+        if type(mapping.mode) == "string" then
+            table.insert(already_seen[lhs], mapping.mode)
+        else
+            vim.iter(mapping.mode):each(function(mode)
+                table.insert(already_seen[lhs], mode)
+            end)
+        end
+    end
+
+    return already_seen
+end
+
+local function extend_mappings(already_seen)
+    for _, mapping in ipairs(default_mappings) do
+        if contains_key(already_seen, mapping.lhs) then
+            if type(mapping.mode) == "string" then
+                if not contains(already_seen[mapping.lhs], mapping.mode) then
+                    table.insert(M.opts.mappings, mapping)
+                end
+            else
+                local m = {
+                    lhs = mapping.lhs,
+                    callback = mapping.callback,
+                    mode = {},
+                }
+
+                ---@diagnostic disable-next-line: param-type-mismatch
+                for _, mode in ipairs(mapping.mode) do
+                    if not contains(already_seen[mapping.lhs], mode) then
+                        table.insert(m.mode, mode)
+                    end
+                end
+                if #mapping.lhs > 0 then
+                    table.insert(M.opts.mappings, m)
+                end
+            end
+        else
+            table.insert(M.opts.mappings, mapping)
+        end
+    end
+end
+
 ---Sets up the plugin. Must always be called once
 ---@param opts file_browser.Config
 M.setup = function(opts)
     M.opts = vim.tbl_deep_extend("force", M.opts, opts or {})
 
     if M.opts.use_default_mappings then
-        for i, mapping in ipairs(default_mappings) do
-            -- TODO:
-            -- - if mapping exists dont do anything
-            -- - if mapping exists partially, apply the partial mapping
-            -- - if mapping does not exist apply all
-        end
-
-        M.opts.mappings = vim.tbl_extend("keep", M.opts.mappings, default_mappings)
+        local already_seen = get_user_mappings()
+        extend_mappings(already_seen)
     end
 
     set_up = true
