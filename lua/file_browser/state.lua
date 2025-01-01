@@ -97,7 +97,6 @@ end
 ---@field marked table<string, file_browser.Entry>: list of marked items, based on cwd
 ---@field actions file_browser.Actions
 ---@field respect_ignore boolean: Respect gitignore and similar
-
 local State = {}
 
 ---Returns a default state, also binding `actions` to it

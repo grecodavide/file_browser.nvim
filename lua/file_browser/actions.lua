@@ -1,7 +1,3 @@
--- TODO:
--- Actions to implement:
--- - move file/dir
--- - rename file
 local utils = require("file_browser.utils")
 
 ---@class file_browser.Actions
@@ -17,7 +13,7 @@ function Actions:new(state)
     }, self)
 end
 
-local is_insert = function()
+local function is_insert()
     return vim.fn.mode() == "i"
 end
 
@@ -146,8 +142,9 @@ function Actions:rename()
     if entry.is_dir then
         old_name = string.sub(old_name, 1, #old_name - 1)
     end
-    local new_name = vim.fn.input("New name: ")
-    if new_name == nil or new_name == "" then
+    local new_name = vim.fn.input({ prompt = "New name: ", default = old_name, cancelreturn = "CANCEL" })
+    -- local new_name = vim.fn.input("New name: ")
+    if new_name == nil or new_name == "CANCEL" then
         return
     end
 
@@ -200,8 +197,8 @@ function Actions:delete(force, ask_confirmation)
     local cmd = string.format("rm --interactive=never -r%s >/dev/null", force and "f" or "")
 
     if ask_confirmation ~= false then
-        local confirmation = vim.fn.input("Confirm? [Y/n] ")
-        if confirmation == nil or confirmation == "" or confirmation == "n" then
+        local confirmation = vim.fn.input({ prompt = "Confirm? [Y/n] ", cancelreturn = "CANCEL" })
+        if confirmation == nil or confirmation == "CANCEL" or confirmation == "n" then
             vim.notify("Deletion canceled", vim.log.levels.WARN, {})
             return
         end
