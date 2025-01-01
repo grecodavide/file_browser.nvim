@@ -40,36 +40,6 @@ local function transform(entry)
     }
 end
 
-local create_entries = function(cwd, show_hidden, respect_ignore, group_dirs, tbl)
-    local results = get_from_cmd(cwd, "a", show_hidden, respect_ignore)
-    local last_dir = 1
-
-    for _, res in ipairs(results) do
-        if res and res ~= "" then -- it's a valid entry
-            if res:sub(#res) == "/" then -- it's a directory
-                local entry = {
-                    icon = {
-                        text = dir_icon_text,
-                        hl = dir_hl,
-                    },
-                    text = res,
-                    is_dir = true,
-                    marked = false,
-                }
-
-                if group_dirs then
-                    table.insert(tbl, last_dir, entry)
-                    last_dir = last_dir + 1
-                else
-                    table.insert(tbl, entry)
-                end
-            else
-                table.insert(tbl, transform(res))
-            end
-        end
-    end
-end
-
 ---@class file_browser.State
 ---@field windows file_browser.Layout: the Windows ID (initialized at invalid values)
 ---@field results_width number: the size of results width
@@ -146,8 +116,8 @@ function State:new(opts)
             entries_nr = 0,
 
             display_entries = {},
-            display_current_entry = -1,
             display_entries_nr = 0,
+            display_current_entry_idx = -1,
 
             width_scale = opts.width_scale,
             height_scale = opts.height_scale,
@@ -163,7 +133,7 @@ function State:new(opts)
             display_links = opts.show_links,
             use_treesitter = opts.use_treesitter,
 
-            mappings = vim.deepcopy(opts.mappings),
+            mappings = opts.mappings,
             group_dirs = opts.group_dirs,
 
             marked = {},
@@ -188,6 +158,37 @@ function State:parse_mapping(mapping)
             local msg = string.format("Error trying to set up mapping %s. Invalid action: %s", mapping.lhs, mapping.callback)
             vim.notify(msg, vim.log.levels.ERROR, {})
             return
+---@private
+---Create entries in given cwd
+---@param cwd string
+---@param tbl table?: if not given defaults to `self.entries`
+function State:_create_entries(cwd, tbl)
+    local results = get_from_cmd(cwd, "a", self.show_hidden, self.respect_ignore)
+    local last_dir = 1
+    tbl = tbl or self.entries
+
+    for _, res in ipairs(results) do
+        if res and res ~= "" then -- it's a valid entry
+            if res:sub(#res) == "/" then -- it's a directory
+                local entry = {
+                    icon = {
+                        text = dir_icon_text,
+                        hl = dir_hl,
+                    },
+                    text = res,
+                    is_dir = true,
+                    marked = false,
+                }
+
+                if self.group_dirs then
+                    table.insert(tbl, last_dir, entry)
+                    last_dir = last_dir + 1
+                else
+                    table.insert(tbl, entry)
+                end
+            else
+                table.insert(tbl, transform(res))
+            end
         end
         table.insert(args, 1, self.actions)
     else
@@ -440,7 +441,7 @@ function State:update_preview()
             local fullpath = self.cwd .. curr.text
             if curr.is_dir then
                 local tmp = {}
-                create_entries(fullpath, self.show_hidden, self.respect_ignore, self.group_dirs, tmp)
+                self:_create_entries(fullpath, tmp)
 
                 vim.api.nvim_buf_set_lines(self.buffers.preview, 0, -1, false, {})
                 local entry
@@ -509,7 +510,7 @@ end
 --- Populates the state with the entries for the current directory. Note that this does not
 --- display anything!
 function State:get_entries()
-    create_entries(self.cwd, self.show_hidden, self.respect_ignore, self.group_dirs, self.entries)
+    self:_create_entries(self.cwd)
 
     self.entries_nr = #self.entries
     self.current_entry = 1
