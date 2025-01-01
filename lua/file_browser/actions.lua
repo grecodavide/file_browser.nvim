@@ -71,26 +71,45 @@ function Actions:default(cd)
     end
 end
 
+---@private
+---Calls the `mv` command
+---@param old string
+---@param new string
+---@return boolean: success?
+local function move(old, new)
+    local exit_code = os.execute(string.format("mv %s %s 2>/dev/null", old, new))
+    if exit_code ~= 0 then
+        vim.notify("Could not move " .. old .. " to " .. new, vim.log.levels.ERROR, {})
+        return false
+    end
+    return true
+end
+
 --- Moves selection to cwd
 ---@param delete_selection boolean?: Remove marks after a successful move? defaults to true
 function Actions:move_to_cwd(delete_selection)
+    local new_marked = {}
+
     vim.iter(self.state.marked):each(function(cwd, entries)
-        for i, entry in ipairs(entries) do
+        for _, entry in ipairs(entries) do
             local fullpath = string.format("%s%s", cwd, entry.text)
-            local exit_code = os.execute(string.format("mv %s %s >/dev/null", fullpath, self.state.cwd))
-            if exit_code ~= 0 then
-                vim.notify("Could not move " .. entry.text, vim.log.levels.ERROR, {})
-            else
-                if delete_selection == nil or delete_selection then
-                    table.remove(self.state.marked[self.state.cwd], i)
+            if move(fullpath, self.state.cwd) then
+                if delete_selection ~= nil and not delete_selection then
+                    if new_marked[self.state.cwd] == nil then
+                        new_marked[self.state.cwd] = {}
+                    end
+                    table.insert(new_marked[self.state.cwd], entry)
                 end
             end
         end
     end)
-    local old = self.state.display_current_entry_idx
 
+    if new_marked[self.state.cwd] == nil then
+        new_marked[self.state.cwd] = {}
+    end
+
+    self.state.marked = new_marked
     self.state:reload()
-    self:jump_to(old, true)
 end
 
 --- Moves selection to cwd
@@ -165,13 +184,59 @@ function Actions:rename()
     self.state:reload()
 end
 
-function Actions:bulk_rename()
-    vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), true, {
+function Actions:bulk_rename(delete_selection)
+    local old = self.state:get_current_entry()
+    local insert = is_insert()
+    local last_win = self.state.last_win -- save actual last win
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    local win = vim.api.nvim_open_win(buf, true, {
         relative = "editor",
         row = 0,
         col = 0,
         width = vim.o.columns,
         height = vim.o.lines,
+    })
+    local entries = {}
+    for path, values in pairs(self.state.marked) do
+        for _, entry in pairs(values) do
+            table.insert(entries, table.concat({ path, entry.text }))
+        end
+    end
+
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, entries)
+    local new_marked = {}
+
+    -- TODO: bulk rename is often useful to also create new directories
+    -- so, also run something akin to mkdir -p base
+    -- In case of failure, instead of printing error, just display a popup
+    -- window for errors
+    vim.api.nvim_create_autocmd("WinLeave", {
+        buffer = buf,
+        callback = function()
+            local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+            for linenr, line in pairs(lines) do
+                if move(entries[linenr], line) then
+                    if delete_selection ~= nil and not delete_selection then
+                        local base = line:match("(.+)/.*")
+                        local file = line:match("[^/]+$")
+                        if new_marked[base] == nil then
+                            new_marked[base] = {}
+                        end
+                        table.insert(new_marked[base], file)
+                    end
+                end
+            end
+            if new_marked[self.state.cwd] == nil then
+                new_marked[self.state.cwd] = {}
+            end
+            self.state.marked = new_marked
+
+            self.state:focus()
+            self.state:cd(self.state.cwd, insert)
+            self:jump_to(self.state:entry_index(old.text), true)
+            self.state.last_win = last_win
+        end,
     })
 end
 
