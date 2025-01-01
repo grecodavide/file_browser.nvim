@@ -1,4 +1,3 @@
-local last_win
 local set_hl = require("file_browser.utils").set_hl
 
 --- Create cmd to get all entries matching a certain type in the given directory, and get its output
@@ -67,6 +66,7 @@ end
 ---@field marked table<string, file_browser.Entry>: list of marked items, based on cwd
 ---@field actions file_browser.Actions
 ---@field respect_ignore boolean: Respect gitignore and similar
+---@field last_win number: Window to go back to once closed
 local State = {}
 
 ---Returns a default state, also binding `actions` to it
@@ -137,6 +137,8 @@ function State:new(opts)
             group_dirs = opts.group_dirs,
 
             marked = {},
+
+            last_win = -1,
         },
         self
     )
@@ -291,7 +293,7 @@ end
 
 --- Saves options, and then IF the windows are not valid, then create them
 function State:create_windows()
-    last_win = vim.api.nvim_get_current_win()
+    self.last_win = vim.api.nvim_get_current_win()
 
     self:save_options()
 
@@ -332,7 +334,7 @@ end
 --- Get index of entry in the `entries` table
 ---@param value string: The text to search
 ---@return number index of entry in `entries`. -1 if not found
-function State:index(value)
+function State:entry_index(value)
     for i, e in ipairs(self.entries) do
         if e.text == value then
             return i
@@ -370,7 +372,7 @@ function State:filter_results()
 
         self.display_entries = {}
         vim.iter(results):each(function(t)
-            local i = self:index(t)
+            local i = self:entry_index(t)
             table.insert(self.display_entries, self.entries[i])
         end)
         self.display_entries_nr = #self.display_entries
@@ -380,6 +382,7 @@ function State:filter_results()
 end
 
 function State:reload()
+    self:reset_entries()
     self:get_entries()
     self:show_entries(false)
 end
@@ -564,7 +567,7 @@ function State:close()
             vim.api.nvim_win_close(value, true)
         end
     end)
-    vim.api.nvim_set_current_win(last_win)
+    vim.api.nvim_set_current_win(self.last_win)
 end
 
 --- Empties the list of entries
