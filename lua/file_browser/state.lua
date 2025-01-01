@@ -145,19 +145,6 @@ function State:new(opts)
     return tbl
 end
 
---- Parses a `file_browser.Mapping` to an actual nvim mapping, setting it up
----@param mapping file_browser.Mapping
-function State:parse_mapping(mapping)
-    local args = mapping.args or {}
-
-    local callback
-
-    if type(mapping.callback) == "string" then
-        callback = self.actions[mapping.callback]
-        if callback == nil then
-            local msg = string.format("Error trying to set up mapping %s. Invalid action: %s", mapping.lhs, mapping.callback)
-            vim.notify(msg, vim.log.levels.ERROR, {})
-            return
 ---@private
 ---Create entries in given cwd
 ---@param cwd string
@@ -190,16 +177,34 @@ function State:_create_entries(cwd, tbl)
                 table.insert(tbl, transform(res))
             end
         end
-        table.insert(args, 1, self.actions)
-    else
-        callback = mapping.callback
     end
+end
 
-    pcall(vim.keymap.del, mapping.mode, mapping.lhs, { buffer = self.buffers.prompt })
+local mappings = {}
 
-    vim.keymap.set(mapping.mode, mapping.lhs, function()
-        callback(unpack(args))
-    end, { buffer = self.buffers.prompt, noremap = true })
+--- Parses a `file_browser.Mapping` to an actual nvim mapping, setting it up
+function State:_parse_mapping()
+    vim.iter(self.mappings):each(function(mapping)
+        local args = vim.deepcopy(mapping.args) or {}
+
+        local callback
+
+        if type(mapping.callback) == "string" then
+            callback = self.actions[mapping.callback]
+            if callback == nil then
+                local msg = string.format("Error trying to set up mapping %s. Invalid action: %s", mapping.lhs, mapping.callback)
+                vim.notify(msg, vim.log.levels.ERROR, {})
+                return
+            end
+            table.insert(args, 1, self.actions)
+        else
+            callback = mapping.callback
+        end
+
+        pcall(vim.keymap.del, mapping.mode, mapping.lhs, { buffer = self.buffers.prompt })
+
+        table.insert(mappings, { mode = mapping.mode, lhs = mapping.lhs, callback = callback, args = args })
+    end)
 end
 
 function State:get_prompt()
@@ -211,8 +216,10 @@ function State:get_current_entry()
 end
 
 function State:create_mappings()
-    vim.iter(self.mappings):each(function(mapping)
-        self:parse_mapping(mapping)
+    vim.iter(mappings):each(function(mapping)
+        vim.keymap.set(mapping.mode, mapping.lhs, function()
+            mapping.callback(unpack(mapping.args))
+        end, { buffer = self.buffers.prompt })
     end)
 end
 
@@ -300,7 +307,9 @@ function State:create_windows()
     end)
 
     vim.bo[self.buffers.prompt].filetype = "prompt"
+
     self:create_autocmds()
+    self:_parse_mapping()
 
     self:create_mappings()
 end
