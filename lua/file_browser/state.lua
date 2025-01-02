@@ -261,6 +261,11 @@ function State:create_autocmds()
         group = augroup,
         buffer = self.buffers.prompt,
         callback = function()
+            for _, kind in pairs({ "prompt", "prompt_prefix", "results", "results_icon", "preview" }) do
+                if vim.api.nvim_buf_is_valid(self.buffers[kind]) then
+                    vim.api.nvim_buf_delete(self.buffers[kind], { force = true })
+                end
+            end
             self:set_options("original")
         end,
     })

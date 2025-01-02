@@ -244,4 +244,18 @@ M.set_hl = function(buffer, hl, line, col_start, col_end)
     vim.api.nvim_buf_add_highlight(buffer, 0, hl, line, col_start or 0, col_end or -1)
 end
 
+M.log = function(msg)
+    vim.notify(msg, vim.log.levels.WARN, {})
+end
+
+M.error = function(msg)
+    vim.notify(msg, vim.log.levels.ERROR, {})
+end
+
+---Returns the path of a file, removing last component
+---@param file string
+M.get_file_path = function(file)
+    return file:match("(.+)/.+")
+end
+
 return M

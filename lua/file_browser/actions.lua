@@ -34,7 +34,7 @@ end
 --- Opens a file.
 ---@param file string
 ---@param absolute boolean?: defaults to true
-function Actions:open(file, absolute)
+function Actions:_open(file, absolute)
     self.state:close()
 
     if absolute == nil or absolute then
@@ -67,7 +67,7 @@ function Actions:default(cd)
         if cd then
             vim.fn.chdir(self.state.cwd)
         end
-        self:open(new_cwd, true)
+        self:_open(new_cwd, true)
     end
 end
 
@@ -75,11 +75,33 @@ end
 ---Calls the `mv` command
 ---@param old string
 ---@param new string
+---@param ask_override boolean?: Ask override? defaults to false. If false, will simply not move that file
 ---@return boolean: success?
-local function move(old, new)
+local function move(old, new, ask_override)
+    local base = utils.get_file_path(new)
+    local cmd = string.format("[ ! -d %s ] && mkdir -p %s || exit 0 2>/dev/null", base, base)
+    if os.execute(cmd) ~= 0 then
+        utils.error("Could not create base directory after moving.")
+        return false
+    end
+
+    cmd = string.format("([ -f %s ] && [ -f %s ]) || ([ -d %s ] && [ -d %s ])", old, new, old, new)
+    if os.execute(cmd) then
+        if ask_override then
+            local confirmation = vim.fn.input({ prompt = string.format("%s already exists. Override? [y/N]", new), cancelreturn = "CANCEL" })
+            if confirmation ~= nil and confirmation ~= "y" then
+                utils.log("Move canceled.")
+                return false
+            end
+        else
+            utils.log("Could not move " .. old .. " to " .. new .. ": already exists.")
+            return false
+        end
+    end
+
     local exit_code = os.execute(string.format("mv %s %s 2>/dev/null", old, new))
     if exit_code ~= 0 then
-        vim.notify("Could not move " .. old .. " to " .. new, vim.log.levels.ERROR, {})
+        utils.error("Could not move " .. old .. " to " .. new)
         return false
     end
     return true
@@ -89,6 +111,7 @@ end
 ---@param delete_selection boolean?: Remove marks after a successful move? defaults to true
 function Actions:move_to_cwd(delete_selection)
     local new_marked = {}
+    local was_selected = self.state:get_current_entry()
 
     vim.iter(self.state.marked):each(function(cwd, entries)
         for _, entry in ipairs(entries) do
@@ -110,6 +133,7 @@ function Actions:move_to_cwd(delete_selection)
 
     self.state.marked = new_marked
     self.state:reload()
+    self:jump_to(self.state:index_display(was_selected.text), true)
 end
 
 --- Moves selection to cwd
@@ -120,7 +144,7 @@ function Actions:copy_to_cwd(delete_selection)
             local fullpath = string.format("%s%s", cwd, entry.text)
             local exit_code = os.execute(string.format("cp -r %s %s >/dev/null", fullpath, self.state.cwd))
             if exit_code ~= 0 then
-                vim.notify("Could not copy " .. entry.text, vim.log.levels.ERROR, {})
+                utils.error("Could not copy " .. entry.text)
             else
                 if delete_selection == nil or delete_selection then
                     table.remove(self.state.marked[self.state.cwd], i)
@@ -172,30 +196,37 @@ function Actions:rename()
     local exists = os.execute(cmd) ~= 0
 
     if exists then
-        vim.notify("Cannot rename: file/dir with that name already exists", vim.log.levels.ERROR, {})
+        utils.error("Cannot rename: file/dir with that name already exists")
         return
     end
 
     if os.execute(string.format("cd %s && mv %s %s", self.state.cwd, old_name, new_name)) ~= 0 then
-        vim.notify("Error while trying to rename.", vim.log.levels.ERROR, {})
+        utils.error("Error while trying to rename.")
         return
     end
 
     self.state:reload()
 end
 
-function Actions:bulk_rename(delete_selection)
+---Bulk rename selection
+---@param ask_override boolean?: ask override in case file already exists. Default to false, and won't move file in that case
+---@param delete_selection boolean?: should delete selection after renaming. Defaults to true
+function Actions:bulk_rename(ask_override, delete_selection)
     local old = self.state:get_current_entry()
     local insert = is_insert()
     local last_win = self.state.last_win -- save actual last win
 
     local buf = vim.api.nvim_create_buf(false, true)
-    local win = vim.api.nvim_open_win(buf, true, {
+    utils.normal_mode()
+    vim.api.nvim_open_win(buf, true, {
         relative = "editor",
-        row = 0,
-        col = 0,
-        width = vim.o.columns,
-        height = vim.o.lines,
+        row = self.state.win_configs.prompt_prefix.row,
+        col = self.state.win_configs.prompt_prefix.col,
+        width = math.floor(self.state.width_scale * vim.o.columns),
+        height = math.floor(self.state.height_scale * vim.o.lines),
+        title = "Bulk Rename",
+        border = "single",
+        zindex = 200, -- above everything
     })
     local entries = {}
     for path, values in pairs(self.state.marked) do
@@ -207,30 +238,33 @@ function Actions:bulk_rename(delete_selection)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, entries)
     local new_marked = {}
 
-    -- TODO: bulk rename is often useful to also create new directories
-    -- so, also run something akin to mkdir -p base
-    -- In case of failure, instead of printing error, just display a popup
-    -- window for errors
-    vim.api.nvim_create_autocmd("WinLeave", {
+    vim.api.nvim_create_autocmd("WinClosed", {
         buffer = buf,
         callback = function()
             local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-            for linenr, line in pairs(lines) do
-                if move(entries[linenr], line) then
-                    if delete_selection ~= nil and not delete_selection then
-                        local base = line:match("(.+)/.*")
-                        local file = line:match("[^/]+$")
-                        if new_marked[base] == nil then
-                            new_marked[base] = {}
+            if #lines == 1 and lines[1] ~= "" or #lines > 1 then
+                for linenr, line in pairs(lines) do
+                    local old_line = entries[linenr]
+                    if old_line ~= line then
+                        if move(old_line, line, ask_override) then
+                            if delete_selection ~= nil and not delete_selection then
+                                local base = utils.get_file_path(line)
+                                local file = line:match("[^/]+$")
+                                if new_marked[base] == nil then
+                                    new_marked[base] = {}
+                                end
+                                table.insert(new_marked[base], file)
+                            end
                         end
-                        table.insert(new_marked[base], file)
+                    else
+                        utils.log("Not moving " .. old_line)
                     end
                 end
+                if new_marked[self.state.cwd] == nil then
+                    new_marked[self.state.cwd] = {}
+                end
+                self.state.marked = new_marked
             end
-            if new_marked[self.state.cwd] == nil then
-                new_marked[self.state.cwd] = {}
-            end
-            self.state.marked = new_marked
 
             self.state:focus()
             self.state:cd(self.state.cwd, insert)
@@ -274,14 +308,14 @@ function Actions:delete(force, ask_confirmation)
     if ask_confirmation ~= false then
         local confirmation = vim.fn.input({ prompt = "Confirm? [Y/n] ", cancelreturn = "CANCEL" })
         if confirmation == nil or confirmation == "CANCEL" or confirmation == "n" then
-            vim.notify("Deletion canceled", vim.log.levels.WARN, {})
+            utils.log("Deletion canceled")
             return
         end
     end
 
     local exit_code = os.execute(table.concat({ cmd, entry }, " "))
     if exit_code ~= 0 then
-        vim.notify("Could not delete!", vim.log.levels.ERROR, {})
+        utils.error("Could not delete!")
     end
     self.state:reload()
 end
@@ -303,7 +337,7 @@ function Actions:create(jump)
     if base ~= "" then
         base = table.concat({ self.state.cwd, base })
         if os.execute(string.format("[ ! -f %s ] && mkdir -p %s || exit 1", first, base)) ~= 0 then
-            vim.notify("Could note create directories.", vim.log.levels.ERROR, {})
+            utils.error("Could note create directories.")
             return
         end
 
@@ -315,11 +349,11 @@ function Actions:create(jump)
     if file ~= nil then
         file = table.concat({ cwd, input })
         if os.execute(string.format("[ ! -f %s ] && touch %s", file, file)) ~= 0 then
-            vim.notify("Could note create file.", vim.log.levels.ERROR, {})
+            utils.error("Could note create file.")
             return
         end
         if jump == nil or jump then
-            self:open(file, true)
+            self:_open(file, true)
             return
         end
     end
@@ -370,9 +404,12 @@ function Actions:jump_to(index, absolute)
 
     self.state.display_current_entry_idx = new_curr
 
-    vim.api.nvim_win_set_cursor(self.state.windows.results, { self.state.display_current_entry_idx, 0 })
-    vim.api.nvim_win_set_cursor(self.state.windows.padding, { self.state.display_current_entry_idx, 0 })
-    vim.api.nvim_win_set_cursor(self.state.windows.results_icon, { self.state.display_current_entry_idx, 0 })
+    -- if there are no entries, don't try to move the cursor
+    if self.state.display_entries_nr > 0 then
+        vim.api.nvim_win_set_cursor(self.state.windows.results, { self.state.display_current_entry_idx, 0 })
+        vim.api.nvim_win_set_cursor(self.state.windows.padding, { self.state.display_current_entry_idx, 0 })
+        vim.api.nvim_win_set_cursor(self.state.windows.results_icon, { self.state.display_current_entry_idx, 0 })
+    end
 
     self.state:update_preview()
 end
