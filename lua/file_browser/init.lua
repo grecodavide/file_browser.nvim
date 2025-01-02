@@ -36,6 +36,11 @@ local default_mappings = {
         callback = "rename",
     },
     {
+        mode = "n",
+        lhs = "R",
+        callback = "bulk_rename",
+    },
+    {
         mode = { "n", "i" },
         lhs = "<C-d>",
         callback = "scroll_preview_down",

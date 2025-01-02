@@ -28,6 +28,7 @@ without necessarily using telescope.
 |`goto_parent_or_delete` | `{}` | If prompt is empty, go to parent directory. Otherwise, behave like a regular `<BS>` | 
 |`jump_to` | `{index: number, absolute: boolean?}` | Jump to given entry (considered relative unless `absolute` is set to true | 
 |`open_split` | `{vertical: boolean?}` | If current entry is a file, opens it in a split. Defaults to vsplit | 
+|`bulk_rename` | `{ask_override: boolean?, delete_selection: boolean?}` | Bulk rename selection. If `ask_override` is set to true it will ask the user whether to override already existing file, otherwise will simply not override it. Unless `delete_selection` is set to `false`, it will also delete selection | 
 
 
 ## Default mappings
@@ -41,6 +42,7 @@ without necessarily using telescope.
 | `i` | `<C-.>` | `cd` | `{}` | 
 | `n` | `.` | `cd` | `{}` | 
 | `n` | `r` | `rename` | `{}` | 
+| `n` | `R` | `bulk_rename` | `{}` | 
 | `{n, i}` | `<C-d>` | `scroll_preview_down` | `{}` | 
 | `{n, i}` | `<C-u>` | `scroll_preview_up` | `{}` | 
 | `{n, i}` | `<C-n>` | `jump` | `{1}` | 
@@ -89,6 +91,13 @@ return {
         require("file_browser").setup({
             width_scale = 0.95,
             height_scale = 0.9,
+            mappings = {
+                {
+                    mode = "i",
+                    lhs = "<C-r>",
+                    callback = "rename"
+                }
+            }
         })
     end,
     keys = {
@@ -113,9 +122,8 @@ return {
 ```
 
 ## WIP
-- [ ] Bulk rename
 - [ ] Preview timeout
-- [ ] Still have to correctly merge `default_mappings` to custom
+- [ ] Saved files
 
 
 > [!WARNING]

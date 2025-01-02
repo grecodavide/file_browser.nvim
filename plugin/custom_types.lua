@@ -53,3 +53,8 @@
 ---@field padding integer
 
 ---@alias file_browser.LayoutElement "prompt_prefix"|"prompt"|"results"|"results_icon"|"preview"|"padding"
+
+---@class file_browser.SavedFile
+---@field entry file_browser.Entry: file
+---@field pos [number, number]: (row, column) in file
+---@field name string: what to show as name
