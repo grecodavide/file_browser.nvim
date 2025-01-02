@@ -257,12 +257,11 @@ end
 function State:create_autocmds()
     local augroup = vim.api.nvim_create_augroup("file-browser", { clear = true })
 
-    vim.api.nvim_create_autocmd("WinLeave", {
+    vim.api.nvim_create_autocmd("WinClosed", {
         group = augroup,
         buffer = self.buffers.prompt,
         callback = function()
             self:set_options("original")
-            self:close()
         end,
     })
     vim.api.nvim_create_autocmd("WinEnter", {
@@ -567,7 +566,10 @@ function State:close()
             vim.api.nvim_win_close(value, true)
         end
     end)
-    vim.api.nvim_set_current_win(self.last_win)
+
+    if vim.api.nvim_win_is_valid(self.last_win) then
+        vim.api.nvim_set_current_win(self.last_win)
+    end
 end
 
 --- Empties the list of entries
