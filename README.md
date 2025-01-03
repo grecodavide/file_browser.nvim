@@ -1,6 +1,6 @@
 # file_browser.nvim
 
-This plugin aims to provide a file browser similar to the one provided by telescope extension,
+This plugin aims to provide a file browser similar to the one provided by [telescope file browser extension](https://github.com/nvim-telescope/telescope-file-browser.nvim)
 without necessarily using telescope.
 
 ## External dependencies
@@ -58,6 +58,13 @@ without necessarily using telescope.
 | `n` | `d` | `delete` | `{true}` | 
 | `{n, i}` | `<BS>` | `goto_parent_or_delete` | `{}` | 
 
+## Custom Types
+
+| Option | Type | 
+| --------------- | --------------- | 
+| `file_browser.Mapping` | `{mode: string\|string[], lhs: string, callback:string\|function, args: table?}` | 
+| `file_browser.Icon` | `{text: string, hl: string}` | 
+
 ## Configuration
 
 | Option | Type | Description |
@@ -68,7 +75,7 @@ without necessarily using telescope.
 | `height_scale` | `number` | Defaults to 0.92 |
 | `show_hidden` | `boolean` | Defaults to true |
 | `show_links` | `boolean` | Defaults to true |
-| `marked_icons` | `file_browser.MarkIcons` | Icons used for marks |
+| `marked_icon` | `file_browser.Icon` | Icons used for marks |
 | `debounce` | `number` | debounce for preview (in ms) |
 | `preview_width` | `number` | percentage of floating win to be used for preview |
 | `max_prompt_size` | `number` | max size (percentage) of prompt prefix |
@@ -77,17 +84,20 @@ without necessarily using telescope.
 | `use_default_mappings` | `boolean?` | Use a default set of mappings. Defaults to true |
 | `group_dirs` | `boolean?` | Whether directories should be grouped at the top |
 | `respect_ignore` | `boolean?` | Whether `.gitignore` and similar should be respected. Defaults to true |
+| `segments` | `number?` | How many segments of path to show at most in promot. If left empty, it will display as many of them as possible |
+
 
 ## Setup
 
 Example using lazy:
 ```lua
 return {
-return {
     "grecodavide/file_browser.nvim",
-    lazy = false,
+    dependencies = {
+        "echasnovski/mini.icons" -- to display file icons
+    },
+    lazy = true,
     config = function()
-        -- mandatory. Plugin won't work if this does not get called
         require("file_browser").setup({
             width_scale = 0.95,
             height_scale = 0.9,
@@ -100,6 +110,7 @@ return {
             }
         })
     end,
+    -- I like to have <leader>fe to open file browser in the same path as current file, and <leader>fE in the CWD
     keys = {
         {
             "<leader>fe",
@@ -123,7 +134,6 @@ return {
 
 ## WIP
 - [ ] Preview timeout
-- [ ] Saved files
 
 
 > [!WARNING]

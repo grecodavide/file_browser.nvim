@@ -219,15 +219,9 @@ M.opts = {
 
     use_treesitter = true,
 
-    marked_icons = {
-        selected = {
-            text = "█",
-            hl = "MiniIconsYellow",
-        },
-        cut = {
-            text = "█",
-            hl = "MiniIconsRed",
-        },
+    marked_icon = {
+        text = "█",
+        hl = "MiniIconsYellow",
     },
 
     debounce = 200,

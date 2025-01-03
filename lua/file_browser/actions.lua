@@ -257,7 +257,7 @@ function Actions:bulk_rename(ask_override, delete_selection)
                             end
                         end
                     else
-                        utils.log("Not moving " .. old_line)
+                        utils.log("Not moving " .. old_line .. ": destination equal to source")
                     end
                 end
                 if new_marked[self.state.cwd] == nil then
@@ -280,7 +280,7 @@ function Actions:mark_current()
     local text
     if idx == -1 then
         table.insert(self.state.marked[self.state.cwd], self.state:get_current_entry())
-        text = { table.concat({ self.state.marked_icons.text, " " }) }
+        text = { table.concat({ self.state.marked_icon.text, " " }) }
     else
         table.remove(self.state.marked[self.state.cwd], idx)
         text = { "" } -- empty line, not nothing: it would delete the line and so move all the other marks
@@ -293,7 +293,7 @@ function Actions:mark_current()
         false,
         text
     )
-    utils.set_hl(self.state.buffers.padding, self.state.marked_icons.hl, self.state.display_current_entry_idx - 1)
+    utils.set_hl(self.state.buffers.padding, self.state.marked_icon.hl, self.state.display_current_entry_idx - 1)
 
     vim.api.nvim_win_set_cursor(self.state.windows.padding, { self.state.display_current_entry_idx, 0 })
 end

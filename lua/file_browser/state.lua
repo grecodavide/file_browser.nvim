@@ -58,7 +58,7 @@ end
 ---@field height_scale number: Height percentage for the plugin
 ---@field preview_width number: Preview percentage (relative to the whole plugin's width)
 ---@field max_prompt_size number: Max size (in percentage) for promtp prefix. If the prompt prefix is longer than this, the shown path will be trimmed
----@field marked_icons file_browser.Icon: Icons to use to define marked entries
+---@field marked_icon file_browser.Icon: Icons to use to define marked entries
 ---@field debounce number: ms to wait before updating the preview
 ---@field use_treesitter boolean: preview with treesitter/regular syntax
 ---@field mappings file_browser.Mapping[]: List of mappings to create
@@ -67,15 +67,16 @@ end
 ---@field actions file_browser.Actions
 ---@field respect_ignore boolean: Respect gitignore and similar
 ---@field last_win number: Window to go back to once closed
+---@field segments number?: Number of path elements to show in prompt prefix
 local State = {}
 
 ---Returns a default state, also binding `actions` to it
 ---@param opts file_browser.Config
 ---@return file_browser.State
 function State:new(opts)
-    local marked_icons = {
-        text = string.format(" %s", opts.marked_icons.selected.text),
-        hl = opts.marked_icons.selected.hl,
+    local marked_icon = {
+        text = string.format(" %s", opts.marked_icon.text),
+        hl = opts.marked_icon.hl,
     }
 
     local tbl = setmetatable(
@@ -124,7 +125,7 @@ function State:new(opts)
             preview_width = opts.preview_width,
             max_prompt_size = opts.max_prompt_size,
 
-            marked_icons = marked_icons,
+            marked_icon = marked_icon,
 
             show_hidden = opts.show_hidden,
             respect_ignore = opts.respect_ignore,
@@ -139,6 +140,8 @@ function State:new(opts)
             marked = {},
 
             last_win = -1,
+
+            segments = opts.segments,
         },
         self
     )
@@ -411,8 +414,8 @@ function State:show_entries(should_jump)
     vim.iter(self.marked[self.cwd] or {}):each(function(e)
         local idx = self:index_display(e.text)
         if idx ~= -1 then
-            vim.api.nvim_buf_set_lines(self.buffers.padding, idx - 1, idx, false, { self.marked_icons.text })
-            set_hl(self.buffers.padding, self.marked_icons.hl, idx - 1)
+            vim.api.nvim_buf_set_lines(self.buffers.padding, idx - 1, idx, false, { self.marked_icon.text })
+            set_hl(self.buffers.padding, self.marked_icon.hl, idx - 1)
         end
     end)
 
@@ -521,9 +524,29 @@ end
 ---@param cwd string: The path to show as a prefix
 ---@param prefix_hl string: the hl group to be assigned to the prompt prefix
 function State:update_prompt(cwd, prefix_hl)
-    local max_len = math.floor(self.win_configs.prompt.width * self.max_prompt_size)
-    local prefix_len = #cwd
+    local max_len
     local display_cwd = cwd
+    if self.segments ~= nil then
+        local len = #cwd
+        local slashes = -1
+        local i = len
+        for c in cwd:reverse():gmatch(".") do
+            if c == "/" then
+                slashes = slashes + 1
+                if slashes == self.segments then
+                    break
+                end
+            end
+            i = i - 1
+        end
+
+        if i > 1 then
+            display_cwd = "..." .. cwd:sub(i)
+        end
+    end
+
+    max_len = math.floor(self.win_configs.prompt.width * self.max_prompt_size)
+    local prefix_len = #display_cwd
     if prefix_len > max_len then
         display_cwd = string.format("...%s", cwd:sub(prefix_len - max_len + 4))
         prefix_len = max_len
