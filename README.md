@@ -7,8 +7,14 @@ without necessarily using telescope.
 - `fzf`
 - `fd`
 
+## Features
+- Treesitter preview
+- Preview debouncing
+- Basic file actions (move, rename, creation, deletion...)
+- Bulk rename
+
 ## Showcase
-![Preview](https://imgur.com/QflGv63.gif)
+![Preview](https://imgur.com/TzlHNVS.gif)
 
 ## Available actions
 | Action | Argument | Description |
