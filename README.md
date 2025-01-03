@@ -38,7 +38,6 @@ without necessarily using telescope.
 
 
 ## Default mappings
-
 | Mode | Mapping | Action | Arguments |
 | --------------- | --------------- | ---------- | ---------- |
 | `n` | `<Esc>` | `close` | `{}` | 
@@ -65,14 +64,12 @@ without necessarily using telescope.
 | `{n, i}` | `<BS>` | `goto_parent_or_delete` | `{}` | 
 
 ## Custom Types
-
 | Option | Type | 
 | --------------- | --------------- | 
 | `file_browser.Mapping` | `{mode: string\|string[], lhs: string, callback:string\|function, args: table?}` | 
 | `file_browser.Icon` | `{text: string, hl: string}` | 
 
 ## Configuration
-
 | Option | Type | Description |
 | --------------- | --------------- | ---------- |
 | `start_insert` | `boolean` | Whether we should start in insert mode. Defaults to true |
@@ -105,8 +102,8 @@ return {
     lazy = true,
     config = function()
         require("file_browser").setup({
-            width_scale = 0.95,
-            height_scale = 0.9,
+            width_scale = 0.9,
+            height_scale = 0.8,
             mappings = {
                 {
                     mode = "i",
@@ -138,13 +135,17 @@ return {
 }
 ```
 
-## WIP
-- [ ] Preview timeout
-
+## Usage
+Open the plugin window by calling `require("file_browser").open(cwd?)`, and navigate with your mappings (default is `<C-n>` and `<C-p>`).
+You can mark the currently selected entry with `<C-s>`
 
 > [!WARNING]
 > functions that modify a buffer's text must be called synchronously, so 
 > be careful hovering too big of a file, as it could lock you for a while
+
+
+## WIP
+- [ ] Preview timeout
 
 
 # Credits
