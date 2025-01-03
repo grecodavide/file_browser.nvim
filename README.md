@@ -3,6 +3,18 @@
 This plugin aims to provide a file browser similar to the one provided by [telescope file browser extension](https://github.com/nvim-telescope/telescope-file-browser.nvim)
 without necessarily using telescope.
 
+# TOC
+- [External Dependencies](#external-dependencies)
+- [Features](#features)
+- [Showcase](#showcase)
+- [Available Actions](#available-actions)
+- [Default Mappings](#default-mappings)
+- [Custom Types](#custom-types)
+- [Configuration](#configuration)
+- [Setup](#setup)
+- [Usage](#usage)
+- [WIP](#wip)
+
 ## External dependencies
 - `fzf`
 - `fd`
@@ -16,7 +28,7 @@ without necessarily using telescope.
 ## Showcase
 ![Preview](https://imgur.com/TzlHNVS.gif)
 
-## Available actions
+## Available Actions
 | Action | Argument | Description |
 | --------------- | --------------- | ---------- |
 |`scroll_preview_up` | `{}` | Scrolls the preview up | 
